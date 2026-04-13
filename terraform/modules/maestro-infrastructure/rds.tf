@@ -80,7 +80,7 @@ resource "aws_security_group_rule" "maestro_db_eks_primary" {
 }
 
 resource "aws_security_group_rule" "maestro_db_bastion" {
-  count = var.bastion_enabled && var.bastion_security_group_id != null && var.bastion_security_group_id != "" ? 1 : 0
+  count = var.bastion_enabled ? 1 : 0
 
   type                     = "ingress"
   description              = "PostgreSQL from bastion"
