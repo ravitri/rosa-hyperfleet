@@ -97,6 +97,7 @@ observability:
   sns_alert_bridge:
     # @doc observability.sns_alert_bridge.enabled Enable SNS alert bridge for regional cluster alert consumption by automated/external services.
     # @used-by observability.sns_alert_bridge.enabled _context
+    # @used-by observability.sns_alert_bridge.enabled pipeline-regional-cluster-inputs/terraform.json.j2
     enabled: true
 
 applications:
