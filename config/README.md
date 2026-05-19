@@ -110,11 +110,11 @@ Config values prefixed with `ssm:///` are resolved at pipeline runtime from AWS
 Systems Manager Parameter Store. These parameters are **not** managed in this
 repo — they are created by the account-minter in the internal repo.
 
-| Parameter Path                                      | Description                          | Created By     |
-| --------------------------------------------------- | ------------------------------------ | -------------- |
-| `/infra/<env>/<region>/account_id`                  | Regional cluster AWS account ID      | account-minter |
-| `/infra/<env>/<region>/<cluster_prefix>/account_id` | Management cluster AWS account ID    | account-minter |
-| `/infra/<env>/<region>/ou-path`                     | AWS Organizations OU path for region | account-minter |
+| Parameter Path                                      | Description                          | Created By                       |
+| --------------------------------------------------- | ------------------------------------ | -------------------------------- |
+| `/infra/<env>/<region>/account_id`                  | Regional cluster AWS account ID      | account-minter                   |
+| `/infra/<env>/<region>/<cluster_prefix>/account_id` | Management cluster AWS account ID    | account-minter                   |
+| `/infra/region-ou-path` _(RC account)_              | AWS Organizations OU path for region | manual (planned: account-minter) |
 
 If you need to reference a new SSM parameter in config, ensure it is first
 created by the account-minter (or another provisioner in the internal repo),
