@@ -16,7 +16,7 @@ sigv4Proxy:
     tag: "1.11"
     pullPolicy: IfNotPresent
   port: 8006
-  replicas: 1
+  replicas: 2
   resources:
     requests:
       cpu: 50m

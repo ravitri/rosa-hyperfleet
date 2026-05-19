@@ -25,6 +25,7 @@ Services:
   maestro   - Maestro HTTP (8080) + gRPC (8090)  [regional only]
   argocd    - ArgoCD server HTTPS (8443)          [regional or management]
   grafana   - Grafana Dashboard (3000)            [regional only]
+  loki      - Loki Query Frontend (3100)            [regional only]
   custom    - Custom service (will prompt for details)
 
 Cluster type:
@@ -70,6 +71,7 @@ else
       "maestro   - Maestro HTTP + gRPC" \
       "argocd    - ArgoCD server HTTPS" \
       "grafana   - Grafana Dashboard" \
+      "loki      - Loki Query Frontend" \
       "custom    - Custom service / ports")
   else
     SERVICE=$(fzf_pick "Select service (${CLUSTER_TYPE}):" \
@@ -82,7 +84,7 @@ fi
 # ── Validate ─────────────────────────────────────────────────────────────────
 
 case "$SERVICE" in
-  maestro|argocd|grafana|custom) ;;
+  maestro|argocd|grafana|loki|custom) ;;
   *) echo "Error: unknown service '$SERVICE'"; echo ""; usage ;;
 esac
 
@@ -98,6 +100,11 @@ fi
 
 if [ "$SERVICE" = "grafana" ] && [ "$CLUSTER_TYPE" != "regional" ]; then
   echo "Error: grafana is only available on regional clusters."
+  exit 1
+fi
+
+if [ "$SERVICE" = "loki" ] && [ "$CLUSTER_TYPE" != "regional" ]; then
+  echo "Error: loki is only available on regional clusters."
   exit 1
 fi
 
@@ -119,6 +126,11 @@ case "$SERVICE" in
   grafana)
     FORWARDS=(
       "Grafana 3000 3000 grafana grafana 80"
+    )
+    ;;
+  loki)
+    FORWARDS=(
+      "Loki-Query 13100 13100 loki-query-frontend loki 3100"
     )
     ;;
   custom)
@@ -309,6 +321,12 @@ if [ "$SERVICE" = "grafana" ]; then
   echo ""
   echo "    Grafana UI: http://localhost:3000"
   echo "    No login required (anonymous access enabled)"
+fi
+
+if [ "$SERVICE" = "loki" ]; then
+  echo ""
+  echo "    Loki Query Frontend: http://localhost:13100"
+  echo "    Test with: curl -s http://localhost:13100/loki/api/v1/labels | jq ."
 fi
 
 echo ""

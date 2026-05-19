@@ -73,6 +73,25 @@ spec:
                 arn: '{{ .metadata.annotations.thanos_target_group_arn }}'
               queryTargetGroup:
                 arn: '{{ .metadata.annotations.thanos_query_target_group_arn }}'
+            # Loki platform values (keys must match chart's values.yaml structure)
+            platform:
+              kmsKeyArn: '{{ .metadata.annotations.loki_kms_key_arn }}'
+              distributorTargetGroup:
+                arn: '{{ .metadata.annotations.loki_distributor_target_group_arn }}'
+              queryFrontendTargetGroup:
+                arn: '{{ .metadata.annotations.loki_query_frontend_target_group_arn }}'
+            # Loki subchart runtime values (bucket names, region, SSE-KMS)
+            loki:
+              loki:
+                storage:
+                  s3:
+                    region: '{{ .metadata.labels.aws_region }}'
+                    sse:
+                      type: SSE-KMS
+                      kms_key_id: '{{ .metadata.annotations.loki_kms_key_arn }}'
+                  bucketNames:
+                    chunks: '{{ .metadata.labels.cluster_name }}-loki-logs-{{ .metadata.annotations.aws_account_id }}'
+                    ruler: '{{ .metadata.labels.cluster_name }}-loki-logs-{{ .metadata.annotations.aws_account_id }}'
             hyperfleetApi:
               aws:
                 region: '{{ .metadata.labels.aws_region }}'

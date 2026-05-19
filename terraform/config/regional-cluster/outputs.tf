@@ -398,6 +398,11 @@ output "thanos_helm_values" {
 # Loki Infrastructure Outputs
 # =============================================================================
 
+output "loki_kms_key_arn" {
+  description = "KMS key ARN for Loki S3 SSE-KMS encryption"
+  value       = module.loki_infrastructure.kms_key_arn
+}
+
 output "loki_distributor_target_group_arn" {
   description = "Target group ARN for Loki Distributor TargetGroupBinding (dedicated RHOBS ALB)"
   value       = module.rhobs_api_gateway.loki_distributor_target_group_arn

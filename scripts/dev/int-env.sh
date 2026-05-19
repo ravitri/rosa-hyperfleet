@@ -317,6 +317,11 @@ cmd_port_forward() {
             "Prometheus 9090 9090 monitoring-prometheus monitoring 9090"
             )
             ;;
+        loki)
+            forwards+=(
+            "Loki-Query 13100 13100 loki-query-frontend loki 3100"
+            )
+            ;;
         grafana)
             forwards+=(
             "Grafana 3000 3000 grafana grafana 80"

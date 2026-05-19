@@ -143,6 +143,7 @@ RUN_TASK_OUTPUT=$(aws ecs run-task \
         {\"name\": \"API_TARGET_GROUP_ARN\", \"value\": \"$API_TARGET_GROUP_ARN\"},
         {\"name\": \"THANOS_TARGET_GROUP_ARN\", \"value\": \"$THANOS_TARGET_GROUP_ARN\"},
         {\"name\": \"THANOS_QUERY_TARGET_GROUP_ARN\", \"value\": \"$THANOS_QUERY_TARGET_GROUP_ARN\"},
+        {\"name\": \"LOKI_KMS_KEY_ARN\", \"value\": \"$LOKI_KMS_KEY_ARN\"},
         {\"name\": \"LOKI_DISTRIBUTOR_TARGET_GROUP_ARN\", \"value\": \"$LOKI_DISTRIBUTOR_TARGET_GROUP_ARN\"},
         {\"name\": \"LOKI_QUERY_FRONTEND_TARGET_GROUP_ARN\", \"value\": \"$LOKI_QUERY_FRONTEND_TARGET_GROUP_ARN\"},
         {\"name\": \"RHOBS_API_URL\", \"value\": \"$RHOBS_API_URL\"}
