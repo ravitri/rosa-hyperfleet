@@ -219,7 +219,7 @@ Available services per cluster type:
 
 The command fetches the ArgoCD admin password automatically and prints it to the terminal. Port forwards remain active until you press `Ctrl+C`.
 
-Prerequisites: `vault`, `aws`, `fzf`, and `lsof` must be in `PATH`.
+Prerequisites: `aws`, `fzf`, and `lsof` must be in `PATH`. `vault` is required only when AWS credentials have not been pre-configured (see [Prerequisites](#prerequisites)).
 
 ## Run E2E Tests
 
