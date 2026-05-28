@@ -4,8 +4,7 @@ metadata:
   name: hypershift-install
   namespace: hypershift-install
   annotations:
-    argocd.argoproj.io/hook: Sync
-    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-options: Replace=true,Force=true
 spec:
   activeDeadlineSeconds: 1800
   backoffLimit: 1
