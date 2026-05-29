@@ -22,7 +22,7 @@ The ephemeral tests create AWS resources across multiple accounts. Teardown reli
 2. Deploy the stack, passing this config (daily at 4 AM cron example):
 
 ```bash
-make deploy CONFIG=/path/to/rosa-regional-platform/ci/janitor/aws-nuke-config.yaml DRY_RUN=false SCHEDULE="cron(0 4 * * ? *)"
+make deploy CONFIG_URL=https://raw.githubusercontent.com/openshift-online/rosa-regional-platform/refs/heads/main/ci/janitor/aws-nuke-config.yaml DRY_RUN=false SCHEDULE="cron(0 4 * * ? *)"
 ```
 
 3. Repeat for each AWS account that needs cleanup.
