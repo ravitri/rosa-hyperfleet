@@ -1,0 +1,162 @@
+# Milestone 4: Building a Regional Observability Platform on Mid-Stream RHOBS
+
+_ROSA Regional Platform — Observability and Alerting_
+
+## Introduction
+
+When we set out to build observability for the ROSA Regional Platform, we faced a fundamental constraint: each AWS region operates independently with its own EKS-based Regional Cluster (RC) and a fleet of Management Clusters (MCs) running across separate AWS accounts. There is no shared network, no centralized Prometheus, and no global control plane to lean on. Metrics, logs, and alerts all had to be solved regionally — from scratch.
+
+This post covers what we built for Milestone 4 ([ROSA-669](https://redhat.atlassian.net/browse/ROSA-669)), with a focus on two areas we think are worth sharing more broadly: our use of **mid-stream RHOBS components** as the foundation of the metrics stack, and an **alerting architecture designed for multiple consumers** — one where new consumers can plug into the alert pipeline without touching AlertManager configuration or routing through PagerDuty.
+
+## The Problem
+
+A single region can have dozens of Management Clusters, each in its own AWS account, each hosting customer Hosted Control Planes. An SRE needs to:
+
+- See metrics from every cluster in the region in a single place
+- Get paged when something breaks, with a runbook and enough context to diagnose the issue without needing direct access to the cluster
+- Query historical data for incident review and capacity planning
+- Add new alert consumers — an AI triage agent, a Slack integration, a compliance audit logger — without changing the core alerting pipeline every time, and without a buggy or abandoned consumer affecting the alerting capability of the region
+
+And all of this needs to run on FIPS-compliant, FedRAMP-ready infrastructure with no static credentials anywhere.
+
+## Leveraging Mid-Stream RHOBS Components
+
+Rather than building a bespoke metrics stack or pulling in upstream Thanos directly, we built on the **RHOBS (Red Hat Observability Service) mid-stream** — the same components that power Red Hat's own managed observability offerings, rebuilt through the Konflux pipeline for FedRAMP compliance.
+
+### What "mid-stream" means in practice
+
+The [thanos-community/thanos-operator](https://github.com/thanos-community/thanos-operator) is the upstream project. The [rhobs/rhobs-konflux-thanos-operator](https://github.com/rhobs/rhobs-konflux-thanos-operator) rebuilds the same operator code on a UBI9 base image with automated Clair, ClamAV, Snyk, and Coverity scanning — the exact image provenance chain that FedRAMP auditors want to see. We consume this as an OCI Helm subchart, pinned to a specific commit hash and image digest.
+
+This gives us three things we couldn't easily get from upstream alone:
+
+1. **FedRAMP-compliant container images** with full vulnerability scanning and provenance
+2. **Operator-managed lifecycle** — CRDs, Deployment, and RBAC are maintained upstream; upgrading is a single chart version bump rather than maintaining ~38,000 lines of CRD YAML locally (which was our original approach, and which drifted silently until ArgoCD sync failures caught it)
+3. **Alignment with Red Hat's observability direction** — we're building on the same foundation as the rest of the managed services portfolio, not a one-off stack
+
+### The Thanos deployment
+
+Each Regional Cluster runs a full Thanos stack deployed as two ArgoCD applications:
+
+| Component                              | Role                                                                                       |
+| -------------------------------------- | ------------------------------------------------------------------------------------------ |
+| **Thanos Receive** (router + ingester) | Accepts `remote_write` from both RC Prometheus and MC Prometheus instances via API Gateway |
+| **Thanos Query + Frontend**            | Federates live data from Receive and historical data from Store Gateway, with caching      |
+| **Thanos Store Gateway**               | Serves historical blocks from KMS-encrypted S3                                             |
+| **Thanos Compactor**                   | Compacts and downsamples S3 blocks (90d raw → 180d at 5m → 365d at 1h)                     |
+| **Thanos Ruler**                       | Evaluates all alerting and recording rules against Thanos Query                            |
+
+Two IAM roles enforce least-privilege: a write role for the Receive ingester and Compactor (which need `s3:PutObject` and KMS key generation), and a read-only role for the Store Gateway (which only needs `s3:GetObject` and `kms:Decrypt`). All credentials come from EKS Pod Identity — no static secrets.
+
+### Cross-account metrics ingestion
+
+The hardest piece was getting metrics from Management Clusters — running in separate AWS accounts with no direct network path to the Regional Cluster — into Thanos Receive securely.
+
+The pipeline we built:
+
+```
+MC Prometheus → sigv4-proxy → RHOBS API Gateway (REST v1) → VPC Link → ALB → Thanos Receive
+```
+
+MC Prometheus remote-writes to a local `sigv4-proxy` sidecar, which signs each request with SigV4 using EKS Pod Identity credentials. A dedicated **RHOBS API Gateway** (separate from the customer-facing Platform API Gateway) authenticates via AWS IAM and forwards through a VPC Link to an internal ALB fronting Thanos Receive. The API Gateway resource policy restricts write access to any authenticated principal within the same AWS Organization — meaning adding a new Management Cluster requires zero policy changes as long as its AWS account is in the org.
+
+Cluster identity is carried by Prometheus `externalLabels` (`cluster` and `cluster_type`) injected at scrape time, so PromQL queries filter naturally by cluster without needing Thanos multi-tenancy.
+
+One detail worth calling out: Prometheus remote_write uses snappy-compressed protobuf, but REST API Gateway v1 only accepts `gzip`, `deflate`, and `identity` as `Content-Encoding` values. The sigv4-proxy strips the `Content-Encoding: snappy` header before signing — this is semantically correct because snappy compression is part of the Prometheus application protocol, not HTTP transport-level compression. Thanos Receive expects snappy regardless of what the header says.
+
+## Alerting Architecture: Designed for Fan-Out
+
+This is the part we're most excited about. Traditional alerting setups put AlertManager at the center of routing, with every new consumer requiring a config change and reload. That works fine for three receivers; it doesn't work when you want an extensible pipeline where different teams can independently subscribe to the alerts they care about.
+
+### The two-phase design
+
+**Phase 1 — PagerDuty stays on the critical path.** All critical alerts (`severity=critical`) route directly from AlertManager to PagerDuty. This path has no additional dependencies, no intermediate queues, no SNS — just AlertManager's native PagerDuty receiver. When an SRE gets paged, we don't want that page to depend on SNS availability. That said, PagerDuty itself is an implementation detail — the provider is swappable via feature flags, which matters for our FedRAMP/GovCloud teams where not every provider is an option.
+
+**Phase 2 — Everything else fans out through SNS.** A second AlertManager route publishes all alerts to an encrypted SNS topic.
+
+```text
+                                    ┌─────────────────────────────────┐
+                                    │                                 │
+Thanos Ruler ──► AlertManager ──┬──►│  PagerDuty (severity=critical)  │
+                                │   │                                 │
+                                │   └─────────────────────────────────┘
+                                │
+                                │   ┌─────────────────────────────────┐
+                                └──►│  SNS Topic (all alerts)         │
+                                    │                                 │
+                                    │   ├── SQS → AI triage agent     │
+                                    │   ├── Lambda → Slack bot         │
+                                    │   ├── HTTPS → compliance logger  │
+                                    │   └── SQS → future consumer...   │
+                                    └─────────────────────────────────┘
+```
+
+### Why this matters
+
+**Adding a new consumer requires zero AlertManager changes.** A team that wants to receive platform alerts subscribes to the SNS topic with an optional filter policy — filtering by alert labels like `team`, `severity`, or `component` — and deploys their consumer independently. No config reload, no PR to the alerting chart, no risk of breaking routing for everyone else.
+
+**SNS filter policies replace AlertManager routing logic for downstream consumers.** Instead of building increasingly complex AlertManager route trees, each subscriber declares what it wants:
+
+```hcl
+resource "aws_sns_topic_subscription" "ai_triage" {
+  topic_arn = aws_sns_topic.alerts.arn
+  protocol  = "sqs"
+  endpoint  = aws_sqs_queue.ai_triage.arn
+  filter_policy = jsonencode({
+    severity = ["critical", "warning"]
+  })
+}
+```
+
+**Durability depends on the subscriber, not AlertManager.** SQS subscribers get retry and dead-letter queue support. Lambda subscribers get automatic retries. AlertManager's limited retry buffer is no longer the bottleneck for non-paging consumers. This should significantly reduce the load on AlertManager if consumers are failing as well, delegating the reliability to the subscriber.
+
+### Cross-cluster rule evaluation
+
+One subtle but important piece: alerting rules often need metrics from multiple clusters. For example, our HCP Availability SLA alerts need `HostedCluster` status conditions from Management Clusters — but RC Prometheus only sees its own local TSDB.
+
+**Thanos Ruler** solves this. It evaluates all `PrometheusRule` CRs against Thanos Query (which federates both RC and MC metrics), and sends firing alerts to AlertManager. This makes Thanos Ruler the single evaluation point for all rules, eliminating duplicate evaluation between RC Prometheus and Thanos Ruler.
+
+Platform alerting rules are deployed as `PrometheusRule` CRs via a dedicated `alerting-rules` Helm chart, with unit tests run by `promtool` in CI. SLA alerts use the multi-window, multi-burn-rate pattern from the [Google SRE Workbook](https://sre.google/workbook/alerting-on-slos/) — a fast-burn alert (5-minute window, 14.4x burn rate) catches severe outages quickly, while a slow-burn alert (30-minute window, 6x burn rate) detects partial degradation.
+
+## What We Shipped
+
+Milestone 4 spanned 20 epics across metrics gathering, log forwarding, alerting, and dashboarding. Here's the summary:
+
+### Metrics Foundation
+
+RHOBS Thanos stack deployed automatically to every new region via ArgoCD, with S3-backed long-term storage, KMS encryption, and scaled ingestion with Memcached caching.
+
+### Metrics Gathering
+
+Full Prometheus + YACE (Yet Another Cloudwatch Exporter) coverage across both cluster types — Kubernetes metrics (kube-state-metrics, node-exporter, ServiceMonitors), AWS CloudWatch metrics (EKS, IoT/MQTT, API Gateway, RDS, ALB, DynamoDB, AmazonMQ, ACM certificates), and HostedControlPlane namespace metrics from MCs.
+
+### Secure Cross-Account Transit
+
+The SigV4-authenticated remote_write pipeline from MC → RHOBS API Gateway → Thanos Receive, with organization-scoped IAM policies and no direct MC-to-RC network path.
+
+### Log Forwarding
+
+Loki stack deployed to the RC with log forwarding from all workloads (static and dynamic) across both cluster types, plus AWS infrastructure logs (CloudTrail, VPC Flow Logs).
+
+### Alerting
+
+The full alerting pipeline: Thanos Ruler evaluating PrometheusRule CRs, AlertManager with PagerDuty + SNS fan-out, SNS topic with Terraform module for subscriber management, and initial SLA alerts for HCP availability.
+
+### Dashboards
+
+Standardized Grafana dashboards deployed to every region via Helm — covering EKS control plane, API Gateway, RDS, ALB, DynamoDB, platform services, HCP health, and ArgoCD operational health.
+
+### Synthetic Monitoring
+
+Leveraging the built-in HCP monitoring from the Control Plane Operator — part of the HyperShift Operator itself — to feed availability metrics into the SLA alerting pipeline. We'll revisit the need for external synthetic monitoring in the future.
+
+## What's Next
+
+The foundation is in place: every region has its own self-contained observability stack, built on RHOBS mid-stream components, with an alerting pipeline designed to grow with the platform. Adding a new alert consumer is an SNS subscription, not an architecture change.
+
+We're still working through the authentication story around Grafana and whether there will be any kind of "global" dashboard that gives an overview of the fleet as a whole. The key constraint is maintaining our goal of preventing any customer-identifying information from being persisted outside of the individual regions.
+
+On the alerting side, we need a more sustainable way to silence alerts on clusters that shouldn't be paged on — clusters in an installing or deprovisioning state, or clusters in limited support. We're working with the upstream RHOBS team to develop a more robust alert silencing solution that we can integrate directly into Cluster Lifecycle Manager.
+
+---
+
+_For questions or feedback, reach out in #team-rosa-regional-platform on Slack._
