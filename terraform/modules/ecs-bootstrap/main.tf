@@ -90,69 +90,30 @@ resource "aws_ecs_task_definition" "bootstrap" {
           set -euo pipefail
 
           echo "=== ArgoCD Bootstrap ==="
-          echo "Tools: aws=$(aws --version 2>&1 | head -1), kubectl=$(kubectl version --client -o json 2>/dev/null | jq -r '.clientVersion.gitVersion'), helm=$(helm version --short)"
+          echo "Tools: aws=$(aws --version 2>&1 | head -1), kubectl=$(kubectl version --client -o json 2>/dev/null | jq -r '.clientVersion.gitVersion'), helm=$(helm version --short), git=$(git --version)"
+
+          # Clone the platform repo so bootstrap uses the same charts that
+          # ArgoCD will manage, eliminating drift between bootstrap and
+          # steady-state configuration.
+          REPO_DIR=/tmp/repo
+          echo "Cloning $REPOSITORY_URL @ $REPOSITORY_BRANCH..."
+          git clone --depth 1 -b "$REPOSITORY_BRANCH" "$REPOSITORY_URL" "$REPO_DIR"
+          echo "✓ Repository cloned"
 
           # Configure kubectl for EKS
           aws eks update-kubeconfig --name $CLUSTER_NAME
 
-          # Apply FIPS NodeClass and workloads NodePool for FIPS-validated compute.
-          # The built-in "system" pool (enabled in compute_config) handles CoreDNS
-          # and metrics-server, so no custom system NodePool is needed here.
-          echo "Applying FIPS NodeClass and workloads NodePool..."
-
-          NODEPOOL_NAME="management-workloads"
-          if [[ "$CLUSTER_TYPE" == "regional-cluster" ]]; then
-            NODEPOOL_NAME="regional-workloads"
-          fi
-
-          cat <<-NODECLASS_EOF | kubectl apply -f -
-          apiVersion: eks.amazonaws.com/v1
-          kind: NodeClass
-          metadata:
-            name: fips
-          spec:
-            role: "$CLUSTER_NAME-auto-node-role"
-            subnetSelectorTerms:
-              - tags:
-                  "kubernetes.io/cluster/$CLUSTER_NAME": owned
-            securityGroupSelectorTerms:
-              - tags:
-                  aws:eks:cluster-name: "$CLUSTER_NAME"
-            advancedSecurity:
-              fips: true
-              kernelLockdown: Integrity
-          NODECLASS_EOF
-
-          cat <<-NODEPOOL_EOF | kubectl apply -f -
-          apiVersion: karpenter.sh/v1
-          kind: NodePool
-          metadata:
-            name: $NODEPOOL_NAME
-          spec:
-            template:
-              spec:
-                nodeClassRef:
-                  group: eks.amazonaws.com
-                  kind: NodeClass
-                  name: fips
-                requirements:
-                  - key: karpenter.sh/capacity-type
-                    operator: In
-                    values:
-                      - on-demand
-                  - key: kubernetes.io/arch
-                    operator: In
-                    values:
-                      - amd64
-            limits:
-              cpu: "64"
-              memory: 256Gi
-            disruption:
-              consolidationPolicy: WhenEmpty
-              consolidateAfter: 60s
-          NODEPOOL_EOF
-
-          echo "✓ FIPS NodeClass and $NODEPOOL_NAME NodePool applied"
+          # Bootstrap the FIPS NodePool before ArgoCD so ArgoCD pods have nodes
+          # to schedule on. EKS Auto Mode's built-in pools ("system",
+          # "general-purpose") can't be made FIPS-compliant — FIPS requires a
+          # custom NodeClass. Once ArgoCD is running, the eks-nodepool chart
+          # Once ArgoCD is running, the eks-nodepool chart adopts these
+          # resources via Server-Side Apply.
+          echo "Applying FIPS NodeClass and workloads NodePool from chart..."
+          helm template eks-nodepool "$REPO_DIR/argocd/config/$CLUSTER_TYPE/eks-nodepool" \
+            --set global.cluster_name="$CLUSTER_NAME" \
+            | kubectl apply --server-side -f -
+          echo "✓ FIPS NodePool applied"
 
           # Wait for coredns and metrics-server (managed by the built-in system pool)
           # to be active before installing ArgoCD.
@@ -167,23 +128,27 @@ resource "aws_ecs_task_definition" "bootstrap" {
 
           # Check if ArgoCD already exists
           if ! kubectl get deployment argocd-server -n argocd 2>/dev/null; then
-            echo "Installing ArgoCD via Helm..."
-
-            # Add ArgoCD Helm repository
-            helm repo add argo https://argoproj.github.io/argo-helm
-            helm repo update
+            echo "Installing ArgoCD from repo chart..."
 
             # Create argocd namespace
             kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
 
-            ARGOCD_VERSION="9.3.4"
-            # Install ArgoCD with adoption annotations for self-management handoff
-            helm upgrade --install argocd argo/argo-cd \
+            # Fetch chart dependencies (charts/ is gitignored)
+            helm repo add argo https://argoproj.github.io/argo-helm
+            helm dependency build "$REPO_DIR/argocd/config/shared/argocd"
+
+            # Install using the same chart that the self-managed ArgoCD app
+            # uses (argocd/config/shared/argocd/), with tracking-id annotations
+            # so the self-managed ArgoCD app can adopt these resources.
+            # redisSecretInit is enabled here to create the Redis auth secret;
+            # the self-managed ArgoCD app has it disabled and prunes the
+            # completed Job on adoption.
+            helm upgrade --install argocd "$REPO_DIR/argocd/config/shared/argocd" \
               --namespace argocd \
-              --version $ARGOCD_VERSION \
-              --set-string 'controller.annotations.argocd\.argoproj\.io/tracking-id=argocd-self-management:argoproj.io/Application:argocd/argocd-self-management' \
-              --set-string 'server.annotations.argocd\.argoproj\.io/tracking-id=argocd-self-management:argoproj.io/Application:argocd/argocd-self-management' \
-              --set-string 'repoServer.annotations.argocd\.argoproj\.io/tracking-id=argocd-self-management:argoproj.io/Application:argocd/argocd-self-management' \
+              --set argo-cd.redisSecretInit.enabled=true \
+              --set-string 'argo-cd.controller.annotations.argocd\.argoproj\.io/tracking-id=argocd:argoproj.io/Application:argocd/argocd' \
+              --set-string 'argo-cd.server.annotations.argocd\.argoproj\.io/tracking-id=argocd:argoproj.io/Application:argocd/argocd' \
+              --set-string 'argo-cd.repoServer.annotations.argocd\.argoproj\.io/tracking-id=argocd:argoproj.io/Application:argocd/argocd' \
               --wait --timeout=5m
 
             echo "✓ ArgoCD installation complete"

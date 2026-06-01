@@ -4,9 +4,8 @@ kind: ClusterIssuer
 metadata:
   name: letsencrypt-dns01
   annotations:
-    # Temporary: defer ClusterIssuer until cert-manager webhook endpoints are ready.
-    # Proper fix: adopt ApplicationSet RollingSync strategy for cross-app dependency ordering.
-    argocd.argoproj.io/sync-wave: "2"
+    # CRD may not exist yet when ArgoCD dry-runs this resource
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
 spec:
   acme:
     server: https://acme-v02.api.letsencrypt.org/directory

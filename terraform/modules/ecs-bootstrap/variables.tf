@@ -31,7 +31,7 @@ variable "eks_cluster_security_group_id" {
 }
 
 variable "container_image" {
-  description = "Container image for the bootstrap task (must have aws, kubectl, helm, jq pre-installed)"
+  description = "Container image for the bootstrap task (must have aws, kubectl, helm, git, jq pre-installed)"
   type        = string
 }
 
