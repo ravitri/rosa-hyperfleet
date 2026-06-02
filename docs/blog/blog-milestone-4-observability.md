@@ -63,6 +63,8 @@ Cluster identity is carried by Prometheus `externalLabels` (`cluster` and `clust
 
 One detail worth calling out: Prometheus remote_write uses snappy-compressed protobuf, but REST API Gateway v1 only accepts `gzip`, `deflate`, and `identity` as `Content-Encoding` values. The signing proxy strips the `Content-Encoding: snappy` header before authenticating — this is semantically correct because snappy compression is part of the Prometheus application protocol, not HTTP transport-level compression. Thanos Receive expects snappy regardless of what the header says.
 
+![RHOBS Architecture](images/m4-rhobs-arch.png)
+
 ## Alerting Architecture: Designed for Fan-Out
 
 This is the part we're most excited about. Traditional alerting setups put AlertManager at the center of routing, with every new consumer requiring a config change and reload. That works fine for three receivers; it doesn't work when you want an extensible pipeline where different teams can independently subscribe to the alerts they care about.
@@ -143,7 +145,10 @@ The full alerting pipeline: Thanos Ruler evaluating PrometheusRule CRs, AlertMan
 
 ### Dashboards
 
-Standardized Grafana dashboards deployed to every region via Helm — covering EKS control plane, API Gateway, RDS, ALB, DynamoDB, platform services, HCP health, and ArgoCD operational health.
+Standardized Grafana dashboards deployed to every region via Helm — covering EKS control plane, API Gateway, RDS, ALB, DynamoDB, platform services, HCP health, and ArgoCD operational health. While the Grafana dashboards we deploy today are relatively generic, we expect these to be the base from which we continue to iterate on as we add more observability features and metrics and find ways to better visualize and analyze the data.
+
+![RC Health Dashboard](images/m4-dashboard-rc.png)
+![Kubernetes Health Dashboard](images/m4-dashboard-health.png)
 
 ### Synthetic Monitoring
 
