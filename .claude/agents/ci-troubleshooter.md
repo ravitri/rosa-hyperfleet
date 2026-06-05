@@ -200,7 +200,6 @@ Use `git show <commit>:<path>` (or Read for nightly/main) to understand the fail
 | `ci/ephemeral-provider/main.py`           | Orchestrates ephemeral provision and teardown |
 | `ci/e2e-tests.sh`                         | Runs the e2e test suite                       |
 | `ci/e2e-platform-api-test.sh`             | Platform API specific e2e tests               |
-| `ci/nightly.sh`                           | Entry point for nightly jobs                  |
 | `ci/ephemeral-provider/orchestrator.py`   | Ephemeral environment lifecycle               |
 | `ci/ephemeral-provider/pipeline.py`       | Pipeline provisioner management               |
 | `ci/ephemeral-provider/codebuild_logs.py` | CodeBuild log collection                      |
