@@ -40,5 +40,8 @@ ephemeral-logs*
 # Local ephemeral environment overrides
 .ephemeral-env/
 
+# Local tool binaries (downloaded by Makefile)
+/bin/
+
 # Dashboard (generated locally by ./dashboard/fetch-data.sh)
 dashboard/data.json

@@ -1,4 +1,36 @@
-.PHONY: help terraform-fmt terraform-init terraform-validate terraform-upgrade terraform-output-management terraform-output-regional helm-lint check-rendered-files ephemeral-provision ephemeral-teardown ephemeral-resync ephemeral-list ephemeral-shell ephemeral-bastion-rc ephemeral-bastion-mc ephemeral-port-forward-rc ephemeral-port-forward-mc ephemeral-port-forward-rc-all ephemeral-port-forward-mc-all ephemeral-e2e ephemeral-collect-logs int-shell int-bastion-rc int-bastion-mc int-port-forward-rc int-port-forward-mc int-port-forward-rc-all int-port-forward-mc-all int-e2e int-collect-logs check-docs check-default-tags pre-push render
+.PHONY: help terraform-fmt terraform-init terraform-validate terraform-upgrade terraform-output-management terraform-output-regional helm-lint check-rendered-files promtool-test ephemeral-provision ephemeral-teardown ephemeral-resync ephemeral-list ephemeral-shell ephemeral-bastion-rc ephemeral-bastion-mc ephemeral-port-forward-rc ephemeral-port-forward-mc ephemeral-port-forward-rc-all ephemeral-port-forward-mc-all ephemeral-e2e ephemeral-collect-logs int-shell int-bastion-rc int-bastion-mc int-port-forward-rc int-port-forward-mc int-port-forward-rc-all int-port-forward-mc-all int-e2e int-collect-logs check-docs check-default-tags pre-push render
+
+# =============================================================================
+# Local tool management
+# =============================================================================
+# Tools are downloaded to ./bin/ on first use. Versions match ci/Containerfile.
+
+LOCALBIN     ?= $(shell pwd)/bin
+UNAME_M      := $(shell uname -m)
+UNAME_S      := $(shell uname -s | tr '[:upper:]' '[:lower:]')
+ARCH         := $(if $(filter x86_64,$(UNAME_M)),amd64,$(if $(filter aarch64 arm64,$(UNAME_M)),arm64,$(error Unsupported architecture: $(UNAME_M))))
+
+PROMTOOL_VERSION ?= 3.4.1
+PROMTOOL         ?= $(or $(shell command -v promtool 2>/dev/null),$(LOCALBIN)/promtool)
+
+YQ_VERSION ?= v4.44.3
+YQ         ?= $(or $(shell command -v yq 2>/dev/null),$(LOCALBIN)/yq)
+
+$(LOCALBIN):
+	mkdir -p $(LOCALBIN)
+
+$(LOCALBIN)/promtool: | $(LOCALBIN)
+	@echo "📥 Installing promtool $(PROMTOOL_VERSION)..."
+	@curl -fsSL "https://github.com/prometheus/prometheus/releases/download/v$(PROMTOOL_VERSION)/prometheus-$(PROMTOOL_VERSION).$(UNAME_S)-$(ARCH).tar.gz" | \
+		tar -xz --strip-components=1 -C $(LOCALBIN) "prometheus-$(PROMTOOL_VERSION).$(UNAME_S)-$(ARCH)/promtool"
+	@chmod +x $(LOCALBIN)/promtool
+	@echo "   ✅ promtool $(PROMTOOL_VERSION) installed to $(LOCALBIN)/promtool"
+
+$(LOCALBIN)/yq: | $(LOCALBIN)
+	@echo "📥 Installing yq $(YQ_VERSION)..."
+	@curl -fsSL "https://github.com/mikefarah/yq/releases/download/$(YQ_VERSION)/yq_$(UNAME_S)_$(ARCH)" -o $(LOCALBIN)/yq
+	@chmod +x $(LOCALBIN)/yq
+	@echo "   ✅ yq $(YQ_VERSION) installed to $(LOCALBIN)/yq"
 
 # Default target — interactive fzf picker, falls back to formatted list
 help: ## Show this help message
@@ -127,6 +159,9 @@ check-rendered-files: ## Verify deploy/ is up to date with config.yaml
 	@echo "🔍 Checking config documentation..."
 	@uv run --no-cache scripts/render.py --check-docs
 
+promtool-test: $(PROMTOOL) $(YQ) ## Run promtool alerting rule tests
+	@PATH="$(LOCALBIN):$$PATH" ./ci/promtool-test.sh
+
 check-docs: ## Check documentation formatting
 	@echo "🔍 Checking documentation formatting..."
 	@npx --no-install prettier --check '**/*.md'
@@ -138,7 +173,7 @@ pre-push: ## Run all CI validation checks (parallel)
 	@echo "Formatting Terraform files..."
 	@$(MAKE) terraform-fmt
 	@echo ""
-	@$(MAKE) -j4 check-docs check-rendered-files helm-lint terraform-validate
+	@$(MAKE) -j4 check-docs check-rendered-files helm-lint terraform-validate promtool-test
 	@echo ""
 	@echo "✅ All pre-push checks passed!"
 
