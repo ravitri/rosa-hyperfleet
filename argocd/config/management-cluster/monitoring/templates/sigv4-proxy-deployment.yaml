@@ -18,7 +18,7 @@ spec:
       serviceAccountName: sigv4-proxy
       containers:
         - name: sigv4-proxy
-          image: public.ecr.aws/aws-observability/aws-sigv4-proxy:latest
+          image: public.ecr.aws/aws-observability/aws-sigv4-proxy:1.11
           args:
             - --name
             - execute-api
@@ -34,6 +34,11 @@ spec:
             - name: proxy
               containerPort: 8005
               protocol: TCP
+          readinessProbe:
+            tcpSocket:
+              port: 8005
+            initialDelaySeconds: 5
+            periodSeconds: 10
           resources:
             requests:
               cpu: 50m
