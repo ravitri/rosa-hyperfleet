@@ -132,6 +132,14 @@ spec:
             # TODO(ROSAENG-1089): hash4 is currently a naive truncation of clusterId.
             # CLM must guarantee uniqueness within a zone shard before production.
             baseDomain: "{{ $hash4 }}.{{ .baseDomain }}"
+          etcd:
+            managed:
+              storage:
+                persistentVolume:
+                  size: 8Gi
+                  storageClassName: gp3
+                type: PersistentVolume
+            managementType: Managed
           fips: true
           release:
             image: quay.io/openshift-release-dev/ocp-release:5.0.0-ec.2-multi
@@ -206,8 +214,8 @@ spec:
             - service: Ignition
               servicePublishingStrategy:
                 type: Route
-          infrastructureAvailabilityPolicy: SingleReplica
-          controllerAvailabilityPolicy: SingleReplica
+          infrastructureAvailabilityPolicy: HighlyAvailable
+          controllerAvailabilityPolicy: HighlyAvailable
       - apiVersion: hypershift.openshift.io/v1beta1
         kind: NodePool
         metadata:
