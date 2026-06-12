@@ -13,6 +13,7 @@ kube-prometheus-stack:
 
   alertmanager:
     enabled: true
+    tplConfig: true
     config:
       route:
         # Default receiver drops alerts not matched by any route.
