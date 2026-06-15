@@ -70,6 +70,29 @@ spec:
           cluster_id: "{{ .clusterId }}"
           cluster_name: "{{ .clusterName }}"
 
+      - apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: "aws-iam-auth-config"
+          namespace: "clusters-{{ .clusterId }}"
+          labels:
+            hyperfleet.io/cluster-id: "{{ .clusterId }}"
+          annotations:
+            hyperfleet.io/generation: "{{ .generation }}"
+        data:
+          config.yaml: |
+            clusterID: {{ .clusterId }}
+            server:
+{{ if .creatorARN }}
+              mapUsers:
+                - userARN: {{ .creatorARN }}
+                  username: cluster-creator
+                  groups:
+                    - system:masters
+{{ else }}
+              mapUsers: []
+{{ end }}
+
       - apiVersion: external-secrets.io/v1
         kind: ExternalSecret
         metadata:
@@ -260,29 +283,6 @@ spec:
         type: Opaque
         data:
           id_rsa.pub: ""
-
-      - apiVersion: v1
-        kind: ConfigMap
-        metadata:
-          name: "aws-iam-auth-config"
-          namespace: "clusters-{{ .clusterId }}"
-          labels:
-            hyperfleet.io/cluster-id: "{{ .clusterId }}"
-          annotations:
-            hyperfleet.io/generation: "{{ .generation }}"
-        data:
-          config.yaml: |
-            clusterID: {{ .clusterId }}
-            server:
-{{ if .creatorARN }}
-              mapUsers:
-                - userARN: {{ .creatorARN }}
-                  username: cluster-creator
-                  groups:
-                    - system:masters
-{{ else }}
-              mapUsers: []
-{{ end }}
 
   deleteOption:
       propagationPolicy: "Foreground"
