@@ -5,7 +5,7 @@
 
 resource "aws_s3_bucket" "outputs" {
   bucket        = local.bucket_name
-  force_destroy = true
+  force_destroy = var.environment == "ephemeral"
 
   tags = merge(
     local.common_tags,
@@ -107,6 +107,36 @@ resource "aws_s3_bucket_policy" "outputs" {
           }
           StringLike = {
             "aws:PrincipalArn" = "arn:*:iam::*:role/*-zoa-job"
+          }
+        }
+      },
+      {
+        Sid       = "DenyNonKMSEncryption"
+        Effect    = "Deny"
+        Principal = "*"
+        Action    = "s3:PutObject"
+        Resource  = "${aws_s3_bucket.outputs.arn}/*"
+        Condition = {
+          Null = {
+            "s3:x-amz-server-side-encryption" = "false"
+          }
+          StringNotEquals = {
+            "s3:x-amz-server-side-encryption" = "aws:kms"
+          }
+        }
+      },
+      {
+        Sid       = "DenyWrongKMSKey"
+        Effect    = "Deny"
+        Principal = "*"
+        Action    = "s3:PutObject"
+        Resource  = "${aws_s3_bucket.outputs.arn}/*"
+        Condition = {
+          Null = {
+            "s3:x-amz-server-side-encryption-aws-kms-key-id" = "false"
+          }
+          StringNotEquals = {
+            "s3:x-amz-server-side-encryption-aws-kms-key-id" = aws_kms_key.zoa.arn
           }
         }
       },

@@ -5,7 +5,7 @@
 
 resource "aws_kms_key" "zoa" {
   description             = "KMS key for ZOA outputs encryption"
-  deletion_window_in_days = 7
+  deletion_window_in_days = var.environment == "ephemeral" ? 7 : 30
   enable_key_rotation     = true
 
   tags = merge(

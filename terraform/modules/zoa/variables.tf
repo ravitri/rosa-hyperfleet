@@ -8,7 +8,10 @@ variable "eks_cluster_name" {
   type        = string
 }
 
-
+variable "environment" {
+  description = "Deployment environment name (e.g. 'ephemeral', 'integration', 'production'). Controls DynamoDB protection settings and S3 force_destroy behavior."
+  type        = string
+}
 
 variable "platform_api_role_id" {
   description = "ID of the existing IAM role for Platform API (from authz module), used for policy attachment"
@@ -20,23 +23,10 @@ variable "platform_api_role_arn" {
   type        = string
 }
 
-
 variable "billing_mode" {
   description = "DynamoDB billing mode"
   type        = string
   default     = "PAY_PER_REQUEST"
-}
-
-variable "enable_point_in_time_recovery" {
-  description = "Enable DynamoDB Point-in-Time Recovery"
-  type        = bool
-  default     = false
-}
-
-variable "enable_deletion_protection" {
-  description = "Enable DynamoDB deletion protection"
-  type        = bool
-  default     = false
 }
 
 variable "mc_ou_path" {
