@@ -83,7 +83,7 @@ else
     fi
     export TF_VAR_oidc_cloudfront_domain TF_VAR_oidc_bucket_name TF_VAR_oidc_bucket_arn TF_VAR_oidc_bucket_region TF_VAR_rhobs_api_url
 
-    # ZOA outputs bucket ARN (optional — only present when enable_zoa=true on RC)
+    # ZOA outputs bucket ARN
     export TF_VAR_zoa_outputs_bucket_arn=$(cd "$_RC_TF_DIR" && terraform output -raw zoa_bucket_arn 2>/dev/null || echo "")
 
     # ZOA KMS key ARN (optional — for S3 SSE-KMS cross-account access)

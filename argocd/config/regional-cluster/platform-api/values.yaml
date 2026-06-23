@@ -18,7 +18,7 @@ platformApi:
     name: platform-api
     image:
       repository: quay.io/slopezz/rosa-regional-platform-api
-      tag: "d712baf"
+      tag: "6f65042"
       pullPolicy: Always
 
     # Application arguments

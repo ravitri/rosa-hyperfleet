@@ -215,7 +215,7 @@ prometheus-yet-another-cloudwatch-exporter:
             - {{ .Values.global.aws_region }}
           searchTags:
             - key: Name
-              value: ^{{ .Values.global.cluster_name }}-authz-
+              value: ^{{ .Values.global.cluster_name }}-
           period: 120
           length: 120
           delay: 120

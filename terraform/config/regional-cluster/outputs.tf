@@ -449,25 +449,25 @@ output "loki_query_frontend_target_group_arn" {
 
 output "zoa_table_name" {
   description = "DynamoDB table name for ZOA executions"
-  value       = var.enable_zoa ? module.zoa[0].table_name : ""
+  value       = module.zoa.table_name
 }
 
 output "zoa_audit_table_name" {
   description = "DynamoDB table name for ZOA audit log"
-  value       = var.enable_zoa ? module.zoa[0].audit_table_name : ""
+  value       = module.zoa.audit_table_name
 }
 
 output "zoa_bucket_name" {
   description = "S3 bucket name for ZOA outputs"
-  value       = var.enable_zoa ? module.zoa[0].bucket_name : ""
+  value       = module.zoa.bucket_name
 }
 
 output "zoa_bucket_arn" {
   description = "S3 bucket ARN for ZOA outputs (used by MC Pod Identity)"
-  value       = var.enable_zoa ? module.zoa[0].bucket_arn : ""
+  value       = module.zoa.bucket_arn
 }
 
 output "zoa_kms_key_arn" {
   description = "KMS key ARN for ZOA encryption (used by MC Pod Identity for S3 SSE-KMS)"
-  value       = var.enable_zoa ? module.zoa[0].kms_key_arn : ""
+  value       = module.zoa.kms_key_arn
 }

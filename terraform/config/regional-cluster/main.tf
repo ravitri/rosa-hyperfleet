@@ -406,7 +406,6 @@ module "authz" {
 # =============================================================================
 
 module "zoa" {
-  count  = var.enable_zoa ? 1 : 0
   source = "../../modules/zoa"
 
   regional_id      = var.regional_id

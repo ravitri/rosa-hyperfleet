@@ -111,11 +111,7 @@ variable "enable_sns_alerting" {
   default     = false
 }
 
-variable "enable_zoa" {
-  description = "Enable Zero Operator Access (ZOA) Trusted Actions infrastructure (DynamoDB, S3, KMS, IAM)"
-  type        = bool
-  default     = true
-}
+
 
 # =============================================================================
 # Platform API Variables
