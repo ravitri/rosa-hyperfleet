@@ -18,7 +18,7 @@ Selective routing is handled by matching on alert labels (e.g., `severity`, `tea
 ```mermaid
 flowchart LR
     P[Prometheus] --> AM[AlertManager]
-    AM -->|severity=critical| PD[PagerDuty]
+    AM -->|"severity=warning|critical"| PD[PagerDuty]
     AM -->|team=platform| WH[Custom Webhook]
 ```
 
@@ -35,9 +35,9 @@ route:
   group_interval: 5m
   repeat_interval: 4h
   routes:
-    # Critical alerts → PagerDuty
-    - match:
-        severity: critical
+    # Warning and critical alerts → PagerDuty
+    - match_re:
+        severity: "warning|critical"
       receiver: pagerduty
       continue: true # continue evaluating sibling routes
 
@@ -53,7 +53,9 @@ receivers:
 
   - name: pagerduty
     pagerduty_configs:
-      - service_key_file: /etc/alertmanager/secrets/pagerduty-service-key
+      - routing_key_file: /etc/alertmanager/secrets/pagerduty-integration-key/integration_key
+        severity: "{{ if .CommonLabels.severity }}{{ .CommonLabels.severity }}{{ else }}critical{{ end }}"
+        send_resolved: true
 
   - name: platform-webhook
     webhook_configs:
@@ -61,15 +63,17 @@ receivers:
         send_resolved: true
 ```
 
+> **Note:** The PagerDuty receiver uses `routing_key_file` (Events API v2) rather than `service_key_file` (v1). The `severity` field dynamically maps the alert's `severity` label to the PagerDuty event severity, defaulting to `critical` if no label is present. This requires `tplConfig: true` in the kube-prometheus-stack Alertmanager values to enable Go template rendering in the config.
+
 ### How Routing Works
 
-1. An alert fires with labels like `severity=critical, team=platform, alertname=HighErrorRate`.
+1. An alert fires with labels like `severity=warning, team=platform, alertname=HighErrorRate`.
 2. AlertManager evaluates routes top-to-bottom:
-   - Matches `severity: critical` → sends to PagerDuty. `continue: true` → keeps evaluating.
+   - Matches `severity: warning` (via `match_re`) → sends to PagerDuty with severity=warning. `continue: true` → keeps evaluating.
    - Matches `team: platform` → sends to platform webhook.
 3. Result: the single alert reaches two receivers.
 
-An alert with `severity=warning, team=storage` would skip PagerDuty and skip the platform webhook, falling through to the default receiver.
+An alert with `severity=info, team=storage` would skip PagerDuty and skip the platform webhook, falling through to the default receiver.
 
 ### Adding a New Receiver
 
@@ -95,7 +99,7 @@ This approach uses AlertManager's built-in SNS receiver with SigV4 authenticatio
 ```mermaid
 flowchart LR
     P[Prometheus] --> AM[AlertManager]
-    AM -->|severity=critical| PD[PagerDuty]
+    AM -->|"severity=warning|critical"| PD[PagerDuty]
     AM -->|continue| SNS[SNS Topic]
     SNS --> Sub1[Subscriber 1]
     SNS --> Sub2[Subscriber 2]
@@ -116,9 +120,9 @@ route:
   group_interval: 5m
   repeat_interval: 4h
   routes:
-    # Phase 1 — Critical alerts → PagerDuty (unchanged)
-    - match:
-        severity: critical
+    # Phase 1 — Warning and critical alerts → PagerDuty
+    - match_re:
+        severity: "warning|critical"
       receiver: pagerduty
       continue: true
 
@@ -131,7 +135,9 @@ receivers:
 
   - name: pagerduty
     pagerduty_configs:
-      - service_key_file: /etc/alertmanager/secrets/pagerduty-service-key
+      - routing_key_file: /etc/alertmanager/secrets/pagerduty-integration-key/integration_key
+        severity: "{{ if .CommonLabels.severity }}{{ .CommonLabels.severity }}{{ else }}critical{{ end }}"
+        send_resolved: true
 
   - name: sns-alerts
     sns_configs:
@@ -156,7 +162,7 @@ Any number of subscribers can be added to the SNS topic. SNS natively supports m
 
 Each subscription can include a [filter policy](https://docs.aws.amazon.com/sns/latest/dg/sns-subscription-filter-policies.html) to selectively receive alerts based on message attributes. Subscribers without a filter policy receive all alerts.
 
-> **Note:** PagerDuty is _not_ an SNS subscriber — it receives critical alerts directly from AlertManager via the Phase 1 route. This avoids adding latency or an SNS dependency to the paging path.
+> **Note:** PagerDuty is _not_ an SNS subscriber — it receives warning and critical alerts directly from AlertManager via the Phase 1 route. This avoids adding latency or an SNS dependency to the paging path.
 
 Subscribers are fully independent — deployed, scaled, and owned by different teams if needed.
 
@@ -207,16 +213,16 @@ No AlertManager changes required. New subscribers are fully decoupled via the SN
 
 ### What Phase 2 Adds Over Phase 1
 
-| Concern                   | Phase 1 only                        | Phase 2 (Phase 1 + SNS)                                                          |
-| ------------------------- | ----------------------------------- | -------------------------------------------------------------------------------- |
-| PagerDuty path            | Direct AlertManager → PagerDuty     | Unchanged — same direct path                                                     |
-| New subscriber onboarding | Config change + AlertManager reload | Subscribe to SNS topic + deploy (no AlertManager change)                         |
-| Durability                | Limited retry/buffering             | Depends on protocol — SQS provides retention + DLQ; Lambda retries automatically |
-| Coupling                  | All receivers in one config         | Only PagerDuty in AlertManager; all others decoupled via SNS                     |
-| Filtering                 | AlertManager label matching         | SNS subscription filter policies                                                 |
-| Cross-account/region      | Difficult                           | Native SNS/SQS cross-account support                                             |
-| Observability             | AlertManager metrics                | AlertManager metrics + CloudWatch metrics per subscriber                         |
-| Additional infrastructure | None                                | SNS topic, IAM role for Alertmanager                                             |
+| Concern                   | Phase 1 only                                         | Phase 2 (Phase 1 + SNS)                                                          |
+| ------------------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------- |
+| PagerDuty path            | Direct AlertManager → PagerDuty (warning + critical) | Unchanged — same direct path                                                     |
+| New subscriber onboarding | Config change + AlertManager reload                  | Subscribe to SNS topic + deploy (no AlertManager change)                         |
+| Durability                | Limited retry/buffering                              | Depends on protocol — SQS provides retention + DLQ; Lambda retries automatically |
+| Coupling                  | All receivers in one config                          | Only PagerDuty in AlertManager; all others decoupled via SNS                     |
+| Filtering                 | AlertManager label matching                          | SNS subscription filter policies                                                 |
+| Cross-account/region      | Difficult                                            | Native SNS/SQS cross-account support                                             |
+| Observability             | AlertManager metrics                                 | AlertManager metrics + CloudWatch metrics per subscriber                         |
+| Additional infrastructure | None                                                 | SNS topic, IAM role for Alertmanager                                             |
 
 ### Failure Modes
 
@@ -243,8 +249,8 @@ flowchart LR
     TS[Thanos Store / S3] --> TQ
     TRuler[Thanos Ruler] -->|queries| TQ
     TRuler -->|fires alerts| AM[AlertManager]
-    AM -->|severity=critical| PD[PagerDuty]
-    AM -->|continue| B[Webhook Bridge]
+    AM -->|"severity=warning|critical"| PD[PagerDuty]
+    AM -->|continue| SNS[SNS Topic]
 ```
 
 ### Rule Deployment

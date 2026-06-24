@@ -99,17 +99,17 @@ Both applications are picked up directly by the root ApplicationSet — there is
 
 All templates are platform-specific resources not provided by either upstream repo:
 
-| Template                  | Renders                        | Why here                                           |
-| ------------------------- | ------------------------------ | -------------------------------------------------- |
-| `receiver.yaml`           | `ThanosReceive` CR             | Platform config (replicas, storage, region labels) |
-| `query.yaml`              | `ThanosQuery` CR               | Platform config (replicas, frontend)               |
-| `store.yaml`              | `ThanosStore` CR               | Platform config (replicas, storage)                |
-| `compact.yaml`            | `ThanosCompact` CR             | Platform config (retention, storage)               |
-| `ruler.yaml`              | `ThanosRuler` CR               | Rule evaluation against Thanos Query, alerting     |
-| `objstore-secret.yaml`    | `Secret` (`objstore.yml`)      | S3/KMS config derived from global values           |
-| `serviceaccount.yaml`     | `ServiceAccount`               | Pod Identity annotation — AWS-specific             |
-| `targetgroupbinding.yaml` | `TargetGroupBinding`           | ALB wiring — AWS-specific                          |
-| `_helpers.tpl`            | Shared label/annotation macros | `SkipDryRunOnMissingResource`, Helm release labels |
+| Template                  | Renders                        | Why here                                                           |
+| ------------------------- | ------------------------------ | ------------------------------------------------------------------ |
+| `receiver.yaml`           | `ThanosReceive` CR             | Platform config (replicas, storage, region labels, OOM prevention) |
+| `query.yaml`              | `ThanosQuery` CR               | Platform config (replicas, frontend)                               |
+| `store.yaml`              | `ThanosStore` CR               | Platform config (replicas, storage)                                |
+| `compact.yaml`            | `ThanosCompact` CR             | Platform config (retention, storage)                               |
+| `ruler.yaml`              | `ThanosRuler` CR               | Rule evaluation against Thanos Query, alerting                     |
+| `objstore-secret.yaml`    | `Secret` (`objstore.yml`)      | S3/KMS config derived from global values                           |
+| `serviceaccount.yaml`     | `ServiceAccount`               | Pod Identity annotation — AWS-specific                             |
+| `targetgroupbinding.yaml` | `TargetGroupBinding`           | ALB wiring — AWS-specific                                          |
+| `_helpers.tpl`            | Shared label/annotation macros | `SkipDryRunOnMissingResource`, Helm release labels                 |
 
 ### Components
 
@@ -122,6 +122,19 @@ All templates are platform-specific resources not provided by either upstream re
 | ThanosStore            | Serves historical blocks from S3                    | 2        |
 | ThanosCompact          | Compacts and downsamples S3 blocks                  | 1        |
 | ThanosRuler            | Evaluates alerting/recording rules via Thanos Query | 2        |
+
+### Receive OOM Prevention
+
+The Thanos Receive ingester is configured with several flags to prevent out-of-memory kills under high ingest load:
+
+| Setting                    | Value | Purpose                                                           |
+| -------------------------- | ----- | ----------------------------------------------------------------- |
+| `--enable-auto-gomemlimit` | —     | Enables automatic Go memory limit based on container cgroup       |
+| `--auto-gomemlimit.ratio`  | `0.9` | Uses 90% of the container memory limit as the Go GOMEMLIMIT       |
+| `--tsdb.wal-compression`   | —     | Compresses the write-ahead log to reduce memory and disk usage    |
+| `tooFarInFutureTimeWindow` | `5m`  | Rejects samples with timestamps more than 5 minutes in the future |
+
+The router's `additionalArgs` (e.g. `--receive.default-tenant-id`) and the ingester's `additionalArgs` are both configurable via Helm values, allowing operational tuning without template changes.
 
 ### Terraform Resources (`terraform/modules/thanos-infrastructure/`)
 

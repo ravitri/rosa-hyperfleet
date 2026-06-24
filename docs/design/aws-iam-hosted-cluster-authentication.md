@@ -105,15 +105,15 @@ If `creatorARN` is not set (e.g. API change not deployed), the ConfigMap is stil
 
 ### Changes by Repository
 
-| Repository                   | Files                                     | Change                                                      |
-| ---------------------------- | ----------------------------------------- | ----------------------------------------------------------- |
-| `rosa-regional-platform`     | `manifestwork.yaml`                       | `aws-iam-auth-config` ConfigMap, HC annotation              |
-| `rosa-regional-platform`     | `adapter-task-config.yaml`                | `creatorARN` CEL capture                                    |
-| `rosa-regional-platform-api` | `pkg/handlers/cluster.go`                 | Inject `creatorARN` from SigV4 caller identity              |
-| `rosa-regional-platform-cli` | `internal/commands/cluster/kubeconfig.go` | `rosactl cluster kubeconfig` command                        |
-| `hypershift`                 | `hostedcluster_controller.go`             | ConfigMap sync HC->HCP, annotation in `mirroredAnnotations` |
-| `hypershift`                 | `kas/deployment.go`                       | `aws-iam-authenticator` sidecar injection                   |
-| `hypershift`                 | `kas/oauth.go`                            | Webhook redirect to localhost:21362                         |
+| Repository                   | Files                                     | Change                                                                       |
+| ---------------------------- | ----------------------------------------- | ---------------------------------------------------------------------------- |
+| `rosa-regional-platform`     | `manifestwork.yaml`                       | `aws-iam-auth-config` ConfigMap, HC annotation                               |
+| `rosa-regional-platform`     | `adapter-task-config.yaml`                | `creatorARN` CEL capture                                                     |
+| `rosa-regional-platform-api` | `pkg/handlers/cluster.go`                 | Inject `creatorARN` from SigV4 caller identity                               |
+| `rosa-regional-platform-cli` | `internal/commands/cluster/kubeconfig.go` | `rosactl cluster kubeconfig` command (includes `--region` in get-token args) |
+| `hypershift`                 | `hostedcluster_controller.go`             | ConfigMap sync HC->HCP, annotation in `mirroredAnnotations`                  |
+| `hypershift`                 | `kas/deployment.go`                       | `aws-iam-authenticator` sidecar injection                                    |
+| `hypershift`                 | `kas/oauth.go`                            | Webhook redirect to localhost:21362                                          |
 
 ### Key Configuration
 
@@ -136,9 +136,10 @@ users:
   - name: my-cluster-iam
     user:
       exec:
-        apiVersion: client.authentication.k8s.io/v1beta1
+        apiVersion: client.authentication.k8s.io/v1
         command: /path/to/rosactl
-        args: [cluster, get-token, --cluster-id, <cluster-id>]
+        args:
+          [cluster, get-token, --cluster-id, <cluster-id>, --region, <region>]
 ```
 
 ## Related Documentation

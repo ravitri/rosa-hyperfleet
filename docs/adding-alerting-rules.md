@@ -46,7 +46,7 @@ spec:
             some_promql_expression > threshold
           for: 5m
           labels:
-            severity: critical # or warning
+            severity: warning # or critical — both are forwarded to PagerDuty
           annotations:
             summary: Short description
             description: >-
@@ -63,6 +63,10 @@ Key points:
   - Both must be present. Missing either one causes the operator to skip the rule (`found prometheus rule-based configmaps count=0`).
   - Also include `app.kubernetes.io/managed-by: Helm` for consistency.
 - **Helm escaping**: Prometheus template expressions (`{{ $labels.name }}`) conflict with Helm's `{{ }}` syntax. Escape them as `{{ "{{" }} $labels.name {{ "}}" }}`.
+
+### Alert Severity and PagerDuty Routing
+
+Both `warning` and `critical` severity alerts are forwarded to PagerDuty via Alertmanager's `match_re` route. The PagerDuty event severity is dynamically mapped from the alert's `severity` label — a `warning` alert creates a PagerDuty event with severity=warning, a `critical` alert creates severity=critical. Use `warning` for conditions that need attention but are not immediately customer-impacting (e.g. error budget burn rate alerts, infrastructure health checks). Reserve `critical` for conditions requiring immediate intervention.
 
 ## Using Helm Values
 

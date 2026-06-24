@@ -49,11 +49,12 @@ In this implementation we will **not** use Regional-Access Clusters. Instead, we
 ### What is the path to recovery after a disaster?
 
 - **Source of truth**: CLM is the single declarative source of truth for cluster state. Its data is persisted in a dedicated RDS database, with regular cross-region backups.
-- **etcd state of MCs**: Critical for hosted cluster data; etcd snapshots will be continuously backed up to a dedicated DR AWS account (per region)
+- **etcd state of HCPs**: Hosted control planes use managed etcd with persistent storage (8Gi PersistentVolumes on gp3). etcd snapshots will be continuously backed up to a dedicated DR AWS account (per region).
+- **etcd state of MCs**: Critical for management cluster coordination; etcd snapshots will be continuously backed up to a dedicated DR AWS account (per region)
 - **Maestro cache**: Can be rebuilt from CLM; Maestro caches state for performance but CLM is authoritative. Loss of Maestro cache does not impact recovery.
 - **Recovery path**:
   - Management Cluster recovery: Restore from etcd backups in the DR account
-  - Hosted Cluster recovery: etcd snapshots allow restoration of customer control planes
+  - Hosted Cluster recovery: etcd snapshots (managed persistent storage) allow restoration of customer control planes
   - CLM state: Persisted in a dedicated RDS database
 - **Break-glass access**: On-demand break-glass access for emergency access when normal management flows are unavailable
 
