@@ -17,6 +17,14 @@ class PipelineMonitor:
     def __init__(self, session: boto3.Session):
         self.client = session.client("codepipeline")
 
+    def _list_all_pipelines(self) -> list[dict]:
+        """Return all pipelines using pagination."""
+        paginator = self.client.get_paginator("list_pipelines")
+        pipelines = []
+        for page in paginator.paginate():
+            pipelines.extend(page.get("pipelines", []))
+        return pipelines
+
     def get_execution_ids(self, pipeline_name: str) -> set[str]:
         """Return the set of current execution IDs for a pipeline."""
         try:
@@ -142,12 +150,11 @@ class PipelineMonitor:
 
         while time.time() < deadline:
             results = []
-            response = self.client.list_pipelines()
-            for pipeline in response.get("pipelines", []):
-                name = pipeline["name"]
-                if not name.startswith(prefix):
-                    continue
+            all_pipelines = self._list_all_pipelines()
+            matching = [p for p in all_pipelines if p["name"].startswith(prefix)]
 
+            for pipeline in matching:
+                name = pipeline["name"]
                 execs = self.client.list_pipeline_executions(
                     pipelineName=name,
                     maxResults=5,
@@ -168,9 +175,23 @@ class PipelineMonitor:
                     log.info("  Found: %s (%s)", name, exec_id)
                 return results
 
-            log.info("No pipelines with prefix '%s' found yet — waiting %ds...", prefix, POLL_INTERVAL)
+            if matching:
+                log.info(
+                    "Pipelines matching prefix '%s': %s — but no new executions yet. Waiting %ds...",
+                    prefix, [p["name"] for p in matching], POLL_INTERVAL,
+                )
+            else:
+                log.info(
+                    "No pipelines matching prefix '%s' (total in account: %d). Waiting %ds...",
+                    prefix, len(all_pipelines), POLL_INTERVAL,
+                )
             time.sleep(POLL_INTERVAL)
 
+        if matching:
+            raise TimeoutError(
+                f"Pipelines {[p['name'] for p in matching]} found but no new executions "
+                f"appeared within {timeout}s"
+            )
         raise TimeoutError(f"No pipelines with prefix '{prefix}' found within {timeout}s")
 
     def snapshot_pipeline_executions(self, prefix: str) -> dict[str, set[str]]:
@@ -181,12 +202,11 @@ class PipelineMonitor:
         """
         result = {}
         try:
-            response = self.client.list_pipelines()
-            for pipeline in response.get("pipelines", []):
+            for pipeline in self._list_all_pipelines():
                 name = pipeline["name"]
                 if not name.startswith(prefix):
                     continue
                 result[name] = self.get_execution_ids(name)
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning("Failed to snapshot pipeline executions for prefix '%s': %s", prefix, e)
         return result
