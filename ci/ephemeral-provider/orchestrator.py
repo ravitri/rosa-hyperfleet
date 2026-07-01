@@ -676,10 +676,11 @@ class EphemeralEnvOrchestrator:
                 text=True,
                 timeout=60,
             )
-            if result.returncode == 0 and result.stdout.strip():
-                return result.stdout.strip()
+            url = result.stdout.strip()
+            if result.returncode == 0 and url.startswith("https://"):
+                return url
 
-            log.warning("terraform output api_gateway_invoke_url returned empty or failed (rc=%d)", result.returncode)
+            log.warning("terraform output api_gateway_invoke_url returned empty or non-URL (rc=%d, stdout=%r)", result.returncode, url[:120])
             return None
         except (subprocess.TimeoutExpired, subprocess.CalledProcessError, RuntimeError) as e:
             log.warning("Failed to fetch API URL from terraform state: %s", e)
@@ -715,11 +716,17 @@ class EphemeralEnvOrchestrator:
             return
 
         # Discover and wait for RC/MC pipeline executions (infra destroy, target region)
-        teardown_pipelines = [
-            (name, exec_id)
-            for name, exec_id in self.target_monitor.discover_pipelines(self.pipeline_prefix, pipeline_known)
-            if name != self.provisioner_name
-        ]
+        try:
+            teardown_pipelines = [
+                (name, exec_id)
+                for name, exec_id in self.target_monitor.discover_pipelines(
+                    self.pipeline_prefix, pipeline_known, allow_empty=True,
+                )
+                if name != self.provisioner_name
+            ]
+        except TimeoutError:
+            log.warning("No teardown pipelines discovered — infrastructure may already be gone")
+            teardown_pipelines = []
 
         # Monitor all teardown pipelines concurrently
         if teardown_pipelines:
@@ -756,10 +763,18 @@ class EphemeralEnvOrchestrator:
         git.modify_config(TARGET_ENVIRONMENT, self.region, set_delete_pipeline_flag)
 
         # Wait for pipeline-provisioner to destroy the pipelines (central region)
-        provisioner_exec_id = self.central_monitor.wait_for_new_execution(
-            self.provisioner_name, provisioner_known
-        )
-        self.central_monitor.wait_for_completion(self.provisioner_name, provisioner_exec_id)
+        try:
+            provisioner_exec_id = self.central_monitor.wait_for_new_execution(
+                self.provisioner_name, provisioner_known
+            )
+            self.central_monitor.wait_for_completion(self.provisioner_name, provisioner_exec_id)
+        except TimeoutError:
+            log.warning("Pipeline-provisioner did not trigger — pipelines may already be gone")
+        except Exception as e:
+            if "PipelineNotFoundException" in type(e).__name__:
+                log.warning("Pipeline-provisioner '%s' not found — skipping pipeline destroy", self.provisioner_name)
+            else:
+                raise
 
         # Phase 3: Destroy pipeline-provisioner via terraform destroy
         log.info("")

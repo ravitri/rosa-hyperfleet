@@ -31,6 +31,14 @@ class PipelineMonitor:
         except self.client.exceptions.PipelineNotFoundException:
             return set()
 
+    def pipeline_exists(self, pipeline_name: str) -> bool:
+        """Check whether a pipeline exists."""
+        try:
+            self.client.get_pipeline(name=pipeline_name)
+            return True
+        except self.client.exceptions.PipelineNotFoundException:
+            return False
+
     def wait_for_new_execution(
         self,
         pipeline_name: str,
@@ -41,7 +49,15 @@ class PipelineMonitor:
 
         Snapshot known_ids via get_execution_ids() before the action that
         triggers the pipeline, then call this to wait for the new execution.
+
+        Raises PipelineNotFoundException immediately if the pipeline does not exist.
         """
+        if not self.pipeline_exists(pipeline_name):
+            raise self.client.exceptions.PipelineNotFoundException(
+                {"Error": {"Code": "PipelineNotFoundException", "Message": pipeline_name}},
+                "GetPipeline",
+            )
+
         log.info("Waiting for new execution on pipeline '%s' (known: %d)...", pipeline_name, len(known_ids))
         deadline = time.time() + timeout
 
@@ -128,12 +144,16 @@ class PipelineMonitor:
         prefix: str,
         known_exec_ids: dict[str, set[str]] | None = None,
         timeout: int = PIPELINE_DISCOVERY_TIMEOUT,
+        allow_empty: bool = False,
     ) -> list[tuple[str, str]]:
         """Find pipelines matching prefix, returning the latest execution for each.
 
         When known_exec_ids is provided (a dict of pipeline_name -> set of known IDs),
         only returns executions that are NOT in the known set — useful for detecting
         new executions triggered by a config push.
+
+        When allow_empty is True and no pipelines with the prefix exist at all,
+        returns an empty list immediately instead of polling until timeout.
 
         Returns list of (pipeline_name, execution_id) tuples.
         """
@@ -142,11 +162,13 @@ class PipelineMonitor:
 
         while time.time() < deadline:
             results = []
+            matching_pipelines = 0
             response = self.client.list_pipelines()
             for pipeline in response.get("pipelines", []):
                 name = pipeline["name"]
                 if not name.startswith(prefix):
                     continue
+                matching_pipelines += 1
 
                 execs = self.client.list_pipeline_executions(
                     pipelineName=name,
@@ -167,6 +189,10 @@ class PipelineMonitor:
                 for name, exec_id in results:
                     log.info("  Found: %s (%s)", name, exec_id)
                 return results
+
+            if allow_empty and matching_pipelines == 0:
+                log.info("No pipelines with prefix '%s' exist — nothing to discover", prefix)
+                return []
 
             log.info("No pipelines with prefix '%s' found yet — waiting %ds...", prefix, POLL_INTERVAL)
             time.sleep(POLL_INTERVAL)
