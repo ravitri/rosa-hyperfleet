@@ -47,7 +47,33 @@ tests:
               severity: warning
               method: GET
               path: /api/v0/clusters
-              result: over_limit
+            exp_annotations:
+              summary: "Over 50% of requests are being rate limited"
+              description: "More than 50% of rate-limited requests on method=GET, path=/api/v0/clusters have been denied for over 10 minutes. This may indicate a misbehaving client or rate limits that need tuning."
+
+  # RateLimitHighDenialRatio fires when combined ratio across pods exceeds 50%
+  # Pod A: 3 denied + 7 ok = 30% per pod, Pod B: 4 denied + 2 ok = 67% per pod
+  # Combined: 7 denied / 16 total = 43.75% — does NOT fire (under 50%)
+  # But with higher combined: Pod A: 5 denied + 3 ok, Pod B: 4 denied + 2 ok
+  # Combined: 9 denied / 14 total = 64% — fires
+  - interval: 1m
+    input_series:
+      - series: 'ratelimit_requests_total{result="over_limit", method="GET", path="/api/v0/clusters", pod="api-0"}'
+        values: "0+5x20"
+      - series: 'ratelimit_requests_total{result="ok", method="GET", path="/api/v0/clusters", pod="api-0"}'
+        values: "0+3x20"
+      - series: 'ratelimit_requests_total{result="over_limit", method="GET", path="/api/v0/clusters", pod="api-1"}'
+        values: "0+4x20"
+      - series: 'ratelimit_requests_total{result="ok", method="GET", path="/api/v0/clusters", pod="api-1"}'
+        values: "0+2x20"
+    alert_rule_test:
+      - eval_time: 11m
+        alertname: RateLimitHighDenialRatio
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              method: GET
+              path: /api/v0/clusters
             exp_annotations:
               summary: "Over 50% of requests are being rate limited"
               description: "More than 50% of rate-limited requests on method=GET, path=/api/v0/clusters have been denied for over 10 minutes. This may indicate a misbehaving client or rate limits that need tuning."

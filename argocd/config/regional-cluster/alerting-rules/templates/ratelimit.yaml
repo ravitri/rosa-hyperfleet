@@ -23,8 +23,8 @@ spec:
         - alert: RateLimitHighDenialRatio
           expr: |
             (
-              rate(ratelimit_requests_total{result="over_limit"}[5m])
-              / on(method, path) group_left
+              sum by(method, path) (rate(ratelimit_requests_total{result="over_limit"}[5m]))
+              /
               sum by(method, path) (rate(ratelimit_requests_total[5m]))
             ) > 0.5
           for: 10m
