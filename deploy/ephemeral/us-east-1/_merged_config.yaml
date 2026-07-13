@@ -191,4 +191,6 @@ platformApi:
       repository: quay.io/travi/rosa-hyperfleet-api
       tag: "ratelimit"
 provision_mcs:
-  mc01: {}
+  mc01:
+    delete: true
+delete: true
