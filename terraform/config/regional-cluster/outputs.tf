@@ -151,21 +151,6 @@ output "api_target_group_arn" {
   value       = module.api_gateway.target_group_arn
 }
 
-output "thanos_target_group_arn" {
-  description = "Target group ARN for Thanos Receive TargetGroupBinding (dedicated RHOBS ALB)"
-  value       = module.rhobs_api_gateway.thanos_receive_target_group_arn
-}
-
-output "thanos_query_target_group_arn" {
-  description = "Target group ARN for Thanos Query Frontend TargetGroupBinding (dedicated RHOBS ALB)"
-  value       = module.rhobs_api_gateway.thanos_query_target_group_arn
-}
-
-output "rhobs_api_url" {
-  description = "RHOBS API Gateway invoke URL (used for both MC remote_write and Thanos Query)"
-  value       = module.rhobs_api_gateway.invoke_url
-}
-
 output "api_allowed_accounts" {
   description = "Platform API allowed accounts (comma-separated account IDs, including current account)"
   value       = join(",", local.api_allowed_accounts)
@@ -424,33 +409,6 @@ output "oidc_bucket_region" {
 output "oidc_writer_role_arn" {
   description = "ARN of the RC-side oidc-writer IAM role (MC operators assume this for OIDC S3+KMS access)"
   value       = module.regional_oidc.oidc_writer_role_arn
-}
-
-# =============================================================================
-# Thanos Infrastructure Outputs
-# =============================================================================
-output "thanos_helm_values" {
-  description = "Helm values for Thanos Receiver chart (use with -f flag)"
-  value       = module.thanos_infrastructure.helm_values
-}
-
-# =============================================================================
-# Loki Infrastructure Outputs
-# =============================================================================
-
-output "loki_kms_key_arn" {
-  description = "KMS key ARN for Loki S3 SSE-KMS encryption"
-  value       = module.loki_infrastructure.kms_key_arn
-}
-
-output "loki_distributor_target_group_arn" {
-  description = "Target group ARN for Loki Distributor TargetGroupBinding (dedicated RHOBS ALB)"
-  value       = module.rhobs_api_gateway.loki_distributor_target_group_arn
-}
-
-output "loki_query_frontend_target_group_arn" {
-  description = "Target group ARN for Loki Query Frontend TargetGroupBinding (dedicated RHOBS ALB)"
-  value       = module.rhobs_api_gateway.loki_query_frontend_target_group_arn
 }
 
 # =============================================================================

@@ -14,7 +14,6 @@
   "pagerduty_escalation_policy_id": "P5KE444",
   "enable_api_custom_domain": false,
   "zone_shard_count": 1,
-  "enable_sns_alerting": true,
   "regional_id": "regional",
   "eph_prefix": "",
   "iot_log_level": "WARN",

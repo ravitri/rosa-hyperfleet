@@ -186,9 +186,6 @@ module "ecs_bootstrap" {
   repository_url    = var.repository_url
   repository_branch = var.repository_branch
 
-  thanos_kms_key_arn = module.thanos_infrastructure.kms_key_arn
-  loki_kms_key_arn   = module.loki_infrastructure.kms_key_arn
-
   management_clusters = var.management_clusters
 }
 
@@ -232,27 +229,6 @@ module "api_gateway" {
   data_trace_enabled     = var.api_data_trace_enabled
   throttling_burst_limit = var.api_throttling_burst_limit
   throttling_rate_limit  = var.api_throttling_rate_limit
-}
-
-# =============================================================================
-# RHOBS API Gateway (Observability)
-#
-# Dedicated REST API + ALB for RHOBS traffic, fully isolated from the Platform
-# API. Includes its own VPC Link, ALB, and security groups. Only MC accounts
-# can invoke this API via resource policy (metrics ingestion).
-# =============================================================================
-
-module "rhobs_api_gateway" {
-  source = "../../modules/rhobs-api-gateway"
-
-  regional_id            = var.regional_id
-  vpc_id                 = module.vpc.vpc_id
-  private_subnet_ids     = module.vpc.private_subnet_ids
-  node_security_group_id = module.regional_cluster.node_security_group_id
-  cluster_name           = module.regional_cluster.cluster_name
-
-  # Method-level observability
-  metrics_enabled = var.rhobs_apigw_metrics_enabled
 }
 
 # =============================================================================
@@ -467,17 +443,6 @@ module "regional_oidc" {
 }
 
 # =============================================================================
-# Grafana CloudWatch Logs (Pod Identity for CW Logs datasource)
-# =============================================================================
-
-module "grafana_cloudwatch_logs" {
-  source       = "../../modules/grafana-cloudwatch-logs"
-  mode         = "primary"
-  cluster_name = module.regional_cluster.cluster_name
-  regional_id  = var.regional_id
-}
-
-# =============================================================================
 # CloudTrail Module (FedRAMP AU-12)
 # =============================================================================
 
@@ -504,43 +469,3 @@ module "pagerduty_service" {
   escalation_policy_id = var.pagerduty_escalation_policy_id
 }
 
-# =============================================================================
-# SNS Alerting Module (Phase 2 Alert Fan-Out)
-# =============================================================================
-
-module "sns_alerting" {
-  count  = var.enable_sns_alerting ? 1 : 0
-  source = "../../modules/sns-alerting"
-
-  regional_id      = var.regional_id
-  eks_cluster_name = module.regional_cluster.cluster_name
-}
-
-# =============================================================================
-# Thanos Infrastructure Module (Observability)
-# =============================================================================
-module "thanos_infrastructure" {
-  source = "../../modules/thanos-infrastructure"
-
-  cluster_id       = var.regional_id
-  eks_cluster_name = module.regional_cluster.cluster_name
-
-  # Optional: customize retention and namespace
-  metrics_retention_days = var.thanos_metrics_retention_days
-  thanos_namespace       = var.thanos_namespace
-  thanos_service_account = var.thanos_service_account
-}
-
-# =============================================================================
-# Loki Infrastructure Module (Observability - Logs)
-# =============================================================================
-module "loki_infrastructure" {
-  source = "../../modules/loki-infrastructure"
-
-  cluster_id       = var.regional_id
-  eks_cluster_name = module.regional_cluster.cluster_name
-
-  logs_retention_days  = var.loki_logs_retention_days
-  loki_namespace       = var.loki_namespace
-  loki_service_account = var.loki_service_account
-}

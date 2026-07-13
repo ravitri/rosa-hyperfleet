@@ -78,7 +78,6 @@ export TF_VAR_enable_bastion="${ENABLE_BASTION}"
 export TF_VAR_enable_cloudtrail=$(parseBool '.enable_cloudtrail' false "$DEPLOY_CONFIG_FILE")
 export TF_VAR_enable_api_custom_domain=$(parseBool '.enable_api_custom_domain' false "$DEPLOY_CONFIG_FILE")
 export TF_VAR_zone_shard_count=$(jq -r '.zone_shard_count // 1' "$DEPLOY_CONFIG_FILE")
-export TF_VAR_enable_sns_alerting=$(parseBool '.enable_sns_alerting' false "$DEPLOY_CONFIG_FILE")
 
 # MC OU path from SSM (provisioned by account-minter, required for OIDC bucket policy)
 TF_VAR_mc_ou_path=$(aws ssm get-parameter \

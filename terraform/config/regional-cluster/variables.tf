@@ -105,14 +105,6 @@ variable "enable_api_custom_domain" {
   default     = false
 }
 
-variable "enable_sns_alerting" {
-  description = "Enable SNS alerting for alert fan-out"
-  type        = bool
-  default     = false
-}
-
-
-
 # =============================================================================
 # Platform API Variables
 # =============================================================================
@@ -173,16 +165,6 @@ variable "api_throttling_rate_limit" {
   description = "Steady-state requests per second allowed for API Gateway methods"
   type        = number
   default     = 100
-}
-
-# =============================================================================
-# RHOBS API Gateway Variables
-# =============================================================================
-
-variable "rhobs_apigw_metrics_enabled" {
-  description = "Enable detailed CloudWatch metrics for RHOBS API Gateway methods"
-  type        = bool
-  default     = true
 }
 
 # Maestro Configuration Variables
@@ -308,60 +290,6 @@ variable "mc_ou_path" {
     condition     = var.mc_ou_path != ""
     error_message = "mc_ou_path must be set to an AWS Organizations OU path to enable cross-account OIDC writes from Management Cluster accounts."
   }
-}
-
-# =============================================================================
-# Thanos Configuration Variables
-# =============================================================================
-
-variable "thanos_metrics_retention_days" {
-  description = "Number of days to retain metrics in S3 (FedRAMP minimum: 30 days)"
-  type        = number
-  default     = 365
-}
-
-variable "thanos_namespace" {
-  description = "Kubernetes namespace where Thanos is deployed"
-  type        = string
-  default     = "thanos"
-
-  validation {
-    condition     = can(regex("^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$", var.thanos_namespace))
-    error_message = "Namespace must conform to DNS-1123 label: lowercase alphanumeric and '-', starting and ending with alphanumeric, max 63 characters."
-  }
-}
-
-variable "thanos_service_account" {
-  description = "Kubernetes service account name for Thanos"
-  type        = string
-  default     = "thanos-operator"
-}
-
-# =============================================================================
-# Loki Configuration Variables
-# =============================================================================
-
-variable "loki_logs_retention_days" {
-  description = "Number of days to retain logs in S3 (FedRAMP minimum: 30 days)"
-  type        = number
-  default     = 90
-}
-
-variable "loki_namespace" {
-  description = "Kubernetes namespace where Loki is deployed"
-  type        = string
-  default     = "loki"
-
-  validation {
-    condition     = can(regex("^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$", var.loki_namespace))
-    error_message = "Namespace must conform to DNS-1123 label: lowercase alphanumeric and '-', starting and ending with alphanumeric, max 63 characters."
-  }
-}
-
-variable "loki_service_account" {
-  description = "Kubernetes service account name for Loki (shared by all Loki components in Distributed mode)"
-  type        = string
-  default     = "loki"
 }
 
 # =============================================================================

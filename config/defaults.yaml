@@ -107,7 +107,6 @@ observability:
   sns_alerting:
     # @doc observability.sns_alerting.enabled Enable SNS alerting for regional cluster alert consumption by automated/external services.
     # @used-by observability.sns_alerting.enabled _context
-    # @used-by observability.sns_alerting.enabled pipeline-regional-cluster-inputs/terraform.json.j2
     # @used-by observability.sns_alerting.enabled pipeline-rhobs-cluster-inputs/terraform.json.j2
     enabled: true
 
