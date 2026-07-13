@@ -1,0 +1,15 @@
+apiVersion: eks.amazonaws.com/v1
+kind: NodeClass
+metadata:
+  name: fips
+spec:
+  role: "{{ .Values.global.cluster_name }}-auto-node-role"
+  subnetSelectorTerms:
+    - tags:
+        "kubernetes.io/cluster/{{ .Values.global.cluster_name }}": owned
+  securityGroupSelectorTerms:
+    - tags:
+        aws:eks:cluster-name: "{{ .Values.global.cluster_name }}"
+  advancedSecurity:
+    fips: true
+    kernelLockdown: Integrity
