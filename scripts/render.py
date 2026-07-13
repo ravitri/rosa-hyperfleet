@@ -695,6 +695,8 @@ def main() -> int:
             render_file(templates_dir, "pipeline-provisioner-inputs/terraform.json", ctx, out_dir / "pipeline-provisioner-inputs" / "terraform.json")
             render_file(templates_dir, "pipeline-provisioner-inputs/regional-cluster.json", ctx, out_dir / "pipeline-provisioner-inputs" / "regional-cluster.json")
             render_file(templates_dir, "pipeline-regional-cluster-inputs/terraform.json", ctx, out_dir / "pipeline-regional-cluster-inputs" / "terraform.json")
+            render_file(templates_dir, "pipeline-provisioner-inputs/rhobs-cluster.json", ctx, out_dir / "pipeline-provisioner-inputs" / "rhobs-cluster.json")
+            render_file(templates_dir, "pipeline-rhobs-cluster-inputs/terraform.json", ctx, out_dir / "pipeline-rhobs-cluster-inputs" / "terraform.json")
 
             # Per-cluster-type: ArgoCD values + bootstrap
             app_config = resolve_templates(ctx.get("applications", {}), ctx)
