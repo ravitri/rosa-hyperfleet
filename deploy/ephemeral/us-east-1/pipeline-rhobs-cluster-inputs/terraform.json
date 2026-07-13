@@ -12,5 +12,6 @@
   "pagerduty_escalation_policy_id": "P5KE444",
   "enable_sns_alerting": true,
   "rc_state_bucket": "terraform-state-599476212575-us-east-1",
-  "rc_state_key": "regional-cluster/eph-a7c8f970-regional.tfstate"
+  "rc_state_key": "regional-cluster/eph-a7c8f970-regional.tfstate",
+  "delete": true
 }
