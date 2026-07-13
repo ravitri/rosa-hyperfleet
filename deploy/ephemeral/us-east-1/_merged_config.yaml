@@ -50,14 +50,17 @@ terraform_tags:
   # @doc terraform_tags.app_code Application code for cost tagging.
   # @used-by terraform_tags.app_code pipeline-management-cluster-inputs/terraform.json.j2
   # @used-by terraform_tags.app_code pipeline-regional-cluster-inputs/terraform.json.j2
+  # @used-by terraform_tags.app_code pipeline-rhobs-cluster-inputs/terraform.json.j2
   app_code: "infra"
   # @doc terraform_tags.service_phase Service deployment phase.
   # @used-by terraform_tags.service_phase pipeline-management-cluster-inputs/terraform.json.j2
   # @used-by terraform_tags.service_phase pipeline-regional-cluster-inputs/terraform.json.j2
+  # @used-by terraform_tags.service_phase pipeline-rhobs-cluster-inputs/terraform.json.j2
   service_phase: "dev"
   # @doc terraform_tags.cost_center Cost center code for billing.
   # @used-by terraform_tags.cost_center pipeline-management-cluster-inputs/terraform.json.j2
   # @used-by terraform_tags.cost_center pipeline-regional-cluster-inputs/terraform.json.j2
+  # @used-by terraform_tags.cost_center pipeline-rhobs-cluster-inputs/terraform.json.j2
   cost_center: "000"
 
 regional_cluster:
@@ -96,16 +99,19 @@ observability:
     # @doc observability.pagerduty.enabled Enable PagerDuty service provisioning for the region.
     # @used-by observability.pagerduty.enabled _context
     # @used-by observability.pagerduty.enabled pipeline-regional-cluster-inputs/terraform.json.j2
+    # @used-by observability.pagerduty.enabled pipeline-rhobs-cluster-inputs/terraform.json.j2
     enabled: false
     # @doc observability.pagerduty.escalation_policy_id PagerDuty escalation policy ID for regional services.
     # @used-by observability.pagerduty.escalation_policy_id _context
     # @used-by observability.pagerduty.escalation_policy_id pipeline-regional-cluster-inputs/terraform.json.j2
+    # @used-by observability.pagerduty.escalation_policy_id pipeline-rhobs-cluster-inputs/terraform.json.j2
     escalation_policy_id: "P5KE444"
 
   sns_alerting:
     # @doc observability.sns_alerting.enabled Enable SNS alerting for regional cluster alert consumption by automated/external services.
     # @used-by observability.sns_alerting.enabled _context
     # @used-by observability.sns_alerting.enabled pipeline-regional-cluster-inputs/terraform.json.j2
+    # @used-by observability.sns_alerting.enabled pipeline-rhobs-cluster-inputs/terraform.json.j2
     enabled: true
 
 applications:

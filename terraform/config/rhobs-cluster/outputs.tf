@@ -28,6 +28,11 @@ output "node_security_group_id" {
   value       = module.rhobs_cluster.node_security_group_id
 }
 
+output "private_subnets" {
+  description = "Private subnet IDs (from RC VPC via remote state)"
+  value       = local.rc_private_subnet_ids
+}
+
 # =============================================================================
 # ECS Bootstrap Outputs
 # =============================================================================

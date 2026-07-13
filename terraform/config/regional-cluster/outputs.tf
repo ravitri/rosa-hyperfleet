@@ -30,6 +30,11 @@ output "vpc_id" {
   value       = module.vpc.vpc_id
 }
 
+output "vpc_cidr" {
+  description = "CIDR block of the VPC"
+  value       = module.vpc.vpc_cidr
+}
+
 output "private_subnets" {
   description = "Private subnet IDs where worker nodes are deployed"
   value       = module.vpc.private_subnet_ids
@@ -38,6 +43,11 @@ output "private_subnets" {
 output "cluster_security_group_id" {
   description = "EKS cluster security group ID"
   value       = module.vpc.cluster_security_group_id
+}
+
+output "vpc_endpoints_security_group_id" {
+  description = "Security group ID for VPC endpoints"
+  value       = module.vpc.vpc_endpoints_security_group_id
 }
 
 output "node_security_group_id" {
