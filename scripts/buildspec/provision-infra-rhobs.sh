@@ -80,6 +80,28 @@ TERRAFORM_ACTION="apply"
 
 echo "RHOBS ${REGIONAL_ID}: terraform ${TERRAFORM_ACTION} in ${TARGET_ACCOUNT_ID}/${TARGET_REGION}"
 
+# Wait for RC terraform state before apply — RHOBS reads RC's VPC outputs
+# via terraform_remote_state, which fails if the RC hasn't finished provisioning.
+if [ "${TERRAFORM_ACTION}" == "apply" ] && [ -n "${TF_VAR_rc_state_bucket}" ] && [ -n "${TF_VAR_rc_state_key}" ]; then
+    echo "Waiting for RC terraform state (bucket=${TF_VAR_rc_state_bucket}, key=${TF_VAR_rc_state_key})..."
+    for _attempt in $(seq 1 60); do
+        if aws s3api head-object \
+            --bucket "${TF_VAR_rc_state_bucket}" \
+            --key "${TF_VAR_rc_state_key}" \
+            --region "${TARGET_REGION}" \
+            >/dev/null 2>&1; then
+            echo "RC terraform state available (attempt ${_attempt})"
+            break
+        fi
+        if [ "$_attempt" -eq 60 ]; then
+            echo "ERROR: RC terraform state not available after 30 minutes" >&2
+            exit 1
+        fi
+        echo "  Attempt ${_attempt}/60 — waiting 30s..."
+        sleep 30
+    done
+fi
+
 cd terraform/config/rhobs-cluster
 terraform init -reconfigure \
     -backend-config="bucket=${TF_STATE_BUCKET}" \

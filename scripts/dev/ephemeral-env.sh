@@ -421,7 +421,10 @@ cmd_provision() {
         fi
 
         local rhobs_api_url=""
-        if [[ -f "$tmpdir/tf-outputs.json" ]]; then
+        if [[ -f "$tmpdir/rhobs-terraform-outputs.json" ]]; then
+            rhobs_api_url=$(jq -r '.rhobs_api_url.value // empty' "$tmpdir/rhobs-terraform-outputs.json" 2>/dev/null || true)
+        fi
+        if [[ -z "$rhobs_api_url" && -f "$tmpdir/tf-outputs.json" ]]; then
             rhobs_api_url=$(jq -r '.rhobs_api_url.value // empty' "$tmpdir/tf-outputs.json" 2>/dev/null || true)
         fi
 

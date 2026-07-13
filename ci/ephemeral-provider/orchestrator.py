@@ -372,7 +372,12 @@ class EphemeralEnvOrchestrator:
         log.info("Pipeline provisioner bootstrapped with ephemeral branch: %s", git.eph_branch)
 
     def _wait_for_provision(self):
-        """Wait for provisioning pipelines to complete."""
+        """Wait for provisioning pipelines to complete.
+
+        Enforces ordering: RC pipeline completes first (its terraform state
+        must exist before RHOBS can run terraform_remote_state), then MC and
+        RHOBS pipelines run in parallel.
+        """
         log.info("")
         log.info("==========================================")
         log.info("Provision: Waiting for Pipelines")
@@ -382,32 +387,45 @@ class EphemeralEnvOrchestrator:
         provisioner_exec_id = self.central_monitor.wait_for_any_execution(self.provisioner_name)
         self.central_monitor.wait_for_completion(self.provisioner_name, provisioner_exec_id)
 
-        # Discover RC/MC pipelines (in target region) by ephemeral prefix, excluding the provisioner
+        # Discover all pipelines (in target region) by ephemeral prefix, excluding the provisioner
         all_pipelines = [
             (name, exec_id)
             for name, exec_id in self.target_monitor.discover_pipelines(self.pipeline_prefix)
             if name != self.provisioner_name
         ]
         if not all_pipelines:
-            raise RuntimeError("No RC/MC pipelines found after provisioner completed.")
+            raise RuntimeError("No RC/MC/RHOBS pipelines found after provisioner completed.")
 
-        # Monitor all pipelines concurrently to capture failures in real-time
+        # Separate RC from dependent pipelines (MC, RHOBS).
+        # RHOBS pipeline name contains "-rhobs-" (e.g. eph-abc-rhobs-pipe).
+        # MC and RHOBS are independent of each other but both depend on RC.
+        rc_pipelines = [
+            (name, exec_id) for name, exec_id in all_pipelines
+            if "-rhobs-" not in name and "-mc" not in name
+        ]
+        dependent_pipelines = [
+            (name, exec_id) for name, exec_id in all_pipelines
+            if "-rhobs-" in name or "-mc" in name
+        ]
+
         failed = []
-        with ThreadPoolExecutor(max_workers=len(all_pipelines)) as executor:
-            # Submit all monitoring tasks
-            future_to_pipeline = {
-                executor.submit(self.target_monitor.wait_for_completion, name, exec_id): name
-                for name, exec_id in all_pipelines
-            }
 
-            # Process results as they complete
-            for future in as_completed(future_to_pipeline):
-                pipeline_name = future_to_pipeline[future]
-                try:
-                    future.result()
-                except (RuntimeError, TimeoutError) as e:
-                    log.error("Pipeline '%s' failed: %s", pipeline_name, e)
-                    failed.append(pipeline_name)
+        # Phase 1: Wait for RC pipeline(s) — must complete before RHOBS can read its state
+        if rc_pipelines:
+            log.info("Phase 1: Waiting for RC pipeline(s)...")
+            failed.extend(self._wait_for_pipeline_group(rc_pipelines))
+
+        if failed:
+            self.collect_codebuild_logs()
+            raise RuntimeError(
+                f"RC pipeline(s) failed during provisioning: {', '.join(failed)}. "
+                "MC/RHOBS pipelines not monitored."
+            )
+
+        # Phase 2: Wait for MC + RHOBS pipelines (independent, run in parallel)
+        if dependent_pipelines:
+            log.info("Phase 2: Waiting for MC + RHOBS pipeline(s)...")
+            failed.extend(self._wait_for_pipeline_group(dependent_pipelines))
 
         if failed:
             self.collect_codebuild_logs()
@@ -416,6 +434,23 @@ class EphemeralEnvOrchestrator:
             )
 
         log.info("All pipelines completed successfully.")
+
+    def _wait_for_pipeline_group(self, pipelines: list[tuple[str, str]]) -> list[str]:
+        """Wait for a group of pipelines concurrently. Returns list of failed pipeline names."""
+        failed = []
+        with ThreadPoolExecutor(max_workers=len(pipelines)) as executor:
+            future_to_pipeline = {
+                executor.submit(self.target_monitor.wait_for_completion, name, exec_id): name
+                for name, exec_id in pipelines
+            }
+            for future in as_completed(future_to_pipeline):
+                pipeline_name = future_to_pipeline[future]
+                try:
+                    future.result()
+                except (RuntimeError, TimeoutError) as e:
+                    log.error("Pipeline '%s' failed: %s", pipeline_name, e)
+                    failed.append(pipeline_name)
+        return failed
 
     def _save_terraform_outputs(self, git: GitManager, dest: str):
         """Fetch RC terraform outputs and write them to a file.
@@ -492,7 +527,7 @@ class EphemeralEnvOrchestrator:
 
         regional_account_id = self.aws.get_target_account_id("regional")
         state_bucket = f"terraform-state-{regional_account_id}-{self.region}"
-        state_key = f"rhobs-cluster/{self.eph_prefix}-regional.tfstate"
+        state_key = f"rhobs-cluster/{self.eph_prefix}-rhobs.tfstate"
         tf_dir = git.work_dir / "terraform" / "config" / "rhobs-cluster"
 
         env = os.environ.copy()

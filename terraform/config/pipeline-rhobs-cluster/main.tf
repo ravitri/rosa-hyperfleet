@@ -10,7 +10,8 @@ data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}
 
 locals {
-  # regional_id is already unique per environment/CI run
+  # regional_id is "rhobs" (or "eph-x-rhobs" for ephemeral) — distinct from
+  # the RC pipeline which uses "regional" as its regional_id.
   name_prefix    = var.regional_id
   account_suffix = substr(data.aws_caller_identity.current.account_id, -8, 8)
 
