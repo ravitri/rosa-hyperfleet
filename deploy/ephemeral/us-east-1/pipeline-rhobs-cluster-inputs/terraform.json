@@ -4,13 +4,13 @@
   "service_phase": "dev",
   "cost_center": "000",
   "environment": "ephemeral",
-  "account_id": "ssm:///infra/ephemeral/us-east-1/account_id",
+  "account_id": "599476212575",
   "region": "us-east-1",
-  "regional_id": "regional",
-  "eph_prefix": "",
+  "regional_id": "eph-750d8250-regional",
+  "eph_prefix": "eph-750d8250",
   "enable_pagerduty": false,
   "pagerduty_escalation_policy_id": "P5KE444",
   "enable_sns_alerting": true,
-  "rc_state_bucket": "terraform-state-ssm:///infra/ephemeral/us-east-1/account_id-us-east-1",
-  "rc_state_key": "regional-cluster/regional.tfstate"
+  "rc_state_bucket": "terraform-state-599476212575-us-east-1",
+  "rc_state_key": "regional-cluster/eph-750d8250-regional.tfstate"
 }
