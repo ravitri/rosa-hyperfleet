@@ -1,0 +1,30 @@
+{{- if .Values.compactor.enabled }}
+apiVersion: monitoring.thanos.io/v1alpha1
+kind: ThanosCompact
+metadata:
+  name: thanos-compact
+  namespace: {{ include "thanos-operator.namespace" . }}
+  labels:
+    {{- include "thanos-operator.labels" . | nindent 4 }}
+  annotations:
+    {{- include "thanos-operator.annotations" . | nindent 4 }}
+spec:
+  resourceRequirements:
+    requests:
+      cpu: {{ .Values.compactor.resources.requests.cpu }}
+      memory: {{ .Values.compactor.resources.requests.memory }}
+    limits:
+      memory: {{ .Values.compactor.resources.limits.memory }}
+  objectStorageConfig:
+    name: {{ .Values.objectStore.secretName }}
+    key: objstore.yml
+  retentionConfig:
+    raw: {{ .Values.compactor.retentionResolutionRaw }}
+    fiveMinutes: {{ .Values.compactor.retentionResolution5m }}
+    oneHour: {{ .Values.compactor.retentionResolution1h }}
+  storage:
+    size: {{ .Values.compactor.storage.size }}
+    {{- if .Values.compactor.storage.storageClass }}
+    storageClass: {{ .Values.compactor.storage.storageClass }}
+    {{- end }}
+{{- end }}

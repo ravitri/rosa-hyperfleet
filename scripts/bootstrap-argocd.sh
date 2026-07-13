@@ -10,8 +10,8 @@ ENVIRONMENT="${ENVIRONMENT:-integration}"
 AWS_CLI_REGION=$(aws configure get region 2>/dev/null || true)
 AWS_REGION="${AWS_REGION:-us-east-1}"
 
-if [[ "$CLUSTER_TYPE" != "management-cluster" && "$CLUSTER_TYPE" != "regional-cluster" ]]; then
-    echo "ERROR: cluster-type must be 'management-cluster' or 'regional-cluster', got '${CLUSTER_TYPE}'" >&2
+if [[ "$CLUSTER_TYPE" != "management-cluster" && "$CLUSTER_TYPE" != "regional-cluster" && "$CLUSTER_TYPE" != "rhobs-cluster" ]]; then
+    echo "ERROR: cluster-type must be 'management-cluster', 'regional-cluster', or 'rhobs-cluster', got '${CLUSTER_TYPE}'" >&2
     exit 1
 fi
 
@@ -74,6 +74,16 @@ if [[ "$CLUSTER_TYPE" == "regional-cluster" ]]; then
     ZOA_TABLE_NAME=$(echo "$OUTPUTS" | jq -r '.zoa_table_name.value // ""')
     ZOA_AUDIT_TABLE_NAME=$(echo "$OUTPUTS" | jq -r '.zoa_audit_table_name.value // ""')
     ZOA_BUCKET_NAME=$(echo "$OUTPUTS" | jq -r '.zoa_bucket_name.value // ""')
+elif [[ "$CLUSTER_TYPE" == "rhobs-cluster" ]]; then
+    THANOS_TARGET_GROUP_ARN=$(echo "$OUTPUTS" | jq -r '.thanos_target_group_arn.value // ""')
+    THANOS_QUERY_TARGET_GROUP_ARN=$(echo "$OUTPUTS" | jq -r '.thanos_query_target_group_arn.value // ""')
+    LOKI_KMS_KEY_ARN=$(echo "$OUTPUTS" | jq -r '.loki_kms_key_arn.value // ""')
+    LOKI_DISTRIBUTOR_TARGET_GROUP_ARN=$(echo "$OUTPUTS" | jq -r '.loki_distributor_target_group_arn.value // ""')
+    LOKI_QUERY_FRONTEND_TARGET_GROUP_ARN=$(echo "$OUTPUTS" | jq -r '.loki_query_frontend_target_group_arn.value // ""')
+    API_TARGET_GROUP_ARN=""
+    ZOA_TABLE_NAME=""
+    ZOA_AUDIT_TABLE_NAME=""
+    ZOA_BUCKET_NAME=""
 else
     API_TARGET_GROUP_ARN=""
     THANOS_TARGET_GROUP_ARN=""

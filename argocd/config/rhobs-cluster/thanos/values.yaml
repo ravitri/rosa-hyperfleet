@@ -1,0 +1,134 @@
+# Injected by ApplicationSet at runtime — defaults here for helm lint only
+global:
+  cluster_type: ""
+  environment: ""
+  aws_region: ""
+  cluster_name: ""
+  aws_account_id: ""
+
+namespace: thanos
+
+objectStore:
+  secretName: thanos-objstore-config
+
+receive:
+  enabled: true
+  # For production, use replicas: 3, replicationFactor: 2
+  replicas: 1
+  replicationFactor: 1
+  retention: 2h
+
+  additionalArgs:
+    - "--enable-auto-gomemlimit"
+    - "--auto-gomemlimit.ratio=0.9"
+    - "--tsdb.wal-compression"
+
+  tooFarInFutureTimeWindow: 5m
+
+  resources:
+    requests:
+      cpu: 700m
+      memory: 3Gi
+    limits:
+      memory: 5Gi
+
+  router:
+    replicas: 1
+    additionalArgs:
+      - "--receive.default-tenant-id=default-tenant"
+    resources:
+      requests:
+        cpu: 250m
+        memory: 1Gi
+      limits:
+        memory: 4Gi
+
+  storage:
+    size: 50Gi
+    storageClass: gp3
+
+query:
+  enabled: true
+  replicas: 2
+
+  resources:
+    requests:
+      cpu: 1
+      memory: 1Gi
+    limits:
+      memory: 5Gi
+
+  frontend:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 1
+        memory: 500Mi
+      limits:
+        memory: 5Gi
+
+storeGateway:
+  enabled: true
+  replicas: 2
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+
+  storage:
+    size: 20Gi
+    storageClass: gp3
+
+compactor:
+  enabled: true
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+
+  retentionResolutionRaw: 90d
+  retentionResolution5m: 180d
+  retentionResolution1h: 365d
+
+  storage:
+    size: 50Gi
+    storageClass: gp3
+
+ruler:
+  enabled: true
+  replicas: 2
+  evaluationInterval: 1m
+  retention: 48h
+  alertmanagerURL: "http://monitoring-alertmanager.monitoring:9093"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+  storage:
+    size: 10Gi
+    storageClass: gp3
+
+serviceAccount:
+  name: thanos-operator
+  annotations: {}
+
+thanos:
+  kmsKeyArn: ""
+  targetGroup:
+    arn: ""
+    serviceName: thanos-receive-router-thanos-receive
+    port: 19291
+    targetType: ip
+  queryTargetGroup:
+    arn: ""
+    serviceName: thanos-query-frontend-thanos-query
+    port: 9090
+    targetType: ip

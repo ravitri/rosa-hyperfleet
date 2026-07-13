@@ -1,0 +1,626 @@
+{
+  "title": "RDS",
+  "uid": "rds-overview",
+  "description": "Per-instance RDS metrics for Maestro and HyperFleet PostgreSQL databases. BurstBalance is critical for t-type instances — sustained 0% means CPU is throttled.",
+  "tags": ["aws", "cloudwatch", "rds", "postgresql", "sre"],
+  "timezone": "browser",
+  "refresh": "1m",
+  "schemaVersion": 38,
+  "graphTooltip": 1,
+  "time": { "from": "now-3h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "label": "Datasource",
+        "query": "prometheus",
+        "current": { "text": "Thanos", "value": "Thanos" },
+        "hide": 0,
+        "refresh": 1
+      },
+      {
+        "name": "rds_instance",
+        "type": "query",
+        "label": "RDS Instance",
+        "datasource": { "type": "prometheus", "uid": "${datasource}" },
+        "query": "label_values(aws_rds_cpuutilization_average, dimension_DBInstanceIdentifier)",
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "current": { "text": "All", "value": "$__all" },
+        "sort": 1
+      }
+    ]
+  },
+  "panels": [
+
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "CPU Utilization",
+      "gridPos": { "x": 0, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "aws_rds_cpuutilization_average{dimension_DBInstanceIdentifier=~\"$rds_instance\"}",
+          "legendFormat": "{{ dimension_DBInstanceIdentifier }}"
+        }
+      ],
+      "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "value": null, "color": "green" }, { "value": 70, "color": "yellow" }, { "value": 90, "color": "red" }]
+          }
+        }
+      }
+    },
+
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Burst Balance",
+      "description": "CPU credit balance remaining (t-type instances). Reaches 0% under sustained load — instance throttles silently when exhausted.",
+      "gridPos": { "x": 4, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "aws_rds_burst_balance_average{dimension_DBInstanceIdentifier=~\"$rds_instance\"}",
+          "legendFormat": "{{ dimension_DBInstanceIdentifier }}"
+        }
+      ],
+      "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "value": null, "color": "red" }, { "value": 20, "color": "yellow" }, { "value": 50, "color": "green" }]
+          }
+        }
+      }
+    },
+
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Freeable Memory",
+      "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "aws_rds_freeable_memory_average{dimension_DBInstanceIdentifier=~\"$rds_instance\"}",
+          "legendFormat": "{{ dimension_DBInstanceIdentifier }}"
+        }
+      ],
+      "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "fieldConfig": { "defaults": { "unit": "bytes" } }
+    },
+
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Swap Usage",
+      "description": "Non-zero swap means postgres is memory-constrained. Any sustained swap is a signal to resize.",
+      "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "aws_rds_swap_usage_average{dimension_DBInstanceIdentifier=~\"$rds_instance\"}",
+          "legendFormat": "{{ dimension_DBInstanceIdentifier }}"
+        }
+      ],
+      "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "value": null, "color": "green" }, { "value": 1, "color": "yellow" }, { "value": 10485760, "color": "red" }]
+          }
+        }
+      }
+    },
+
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Free Storage",
+      "gridPos": { "x": 16, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "aws_rds_free_storage_space_average{dimension_DBInstanceIdentifier=~\"$rds_instance\"}",
+          "legendFormat": "{{ dimension_DBInstanceIdentifier }}"
+        }
+      ],
+      "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "value": null, "color": "red" }, { "value": 1073741824, "color": "yellow" }, { "value": 5368709120, "color": "green" }]
+          }
+        }
+      }
+    },
+
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Connections",
+      "gridPos": { "x": 20, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "aws_rds_database_connections_sum{dimension_DBInstanceIdentifier=~\"$rds_instance\"}",
+          "legendFormat": "{{ dimension_DBInstanceIdentifier }}"
+        }
+      ],
+      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "fieldConfig": { "defaults": { "unit": "none" } }
+    },
+
+    {
+      "id": 20,
+      "type": "stat",
+      "title": "Max Used Transaction IDs",
+      "description": "PostgreSQL anti-wraparound. Alert if climbing toward 1.6B.",
+      "gridPos": { "x": 16, "y": 4, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "aws_rds_maximum_used_transaction_ids_average{dimension_DBInstanceIdentifier=~\"$rds_instance\"}",
+          "legendFormat": "{{ dimension_DBInstanceIdentifier }}"
+        }
+      ],
+      "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "value": null, "color": "green" },
+              { "value": 500000000, "color": "yellow" },
+              { "value": 1000000000, "color": "red" }
+            ]
+          }
+        }
+      }
+    },
+
+    {
+      "id": 30,
+      "type": "stat",
+      "title": "Deadlocks",
+      "description": "Any deadlocks indicate transaction ordering issues. Should always be 0.",
+      "gridPos": { "x": 0, "y": 4, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "aws_rds_deadlocks_sum{dimension_DBInstanceIdentifier=~\"$rds_instance\"} or vector(0)",
+          "legendFormat": "{{ dimension_DBInstanceIdentifier }}"
+        }
+      ],
+      "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "value": null, "color": "green" }, { "value": 1, "color": "red" }]
+          }
+        }
+      }
+    },
+
+    {
+      "id": 31,
+      "type": "stat",
+      "title": "Disk Queue Depth",
+      "description": "Sustained > 1 means storage is saturated. Expect latency spikes.",
+      "gridPos": { "x": 4, "y": 4, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "aws_rds_disk_queue_depth_average{dimension_DBInstanceIdentifier=~\"$rds_instance\"}",
+          "legendFormat": "{{ dimension_DBInstanceIdentifier }}"
+        }
+      ],
+      "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "value": null, "color": "green" }, { "value": 1, "color": "yellow" }, { "value": 5, "color": "red" }]
+          }
+        }
+      }
+    },
+
+    {
+      "id": 32,
+      "type": "stat",
+      "title": "Read Latency",
+      "description": "Average I/O read latency. Should be sub-millisecond for gp3 volumes.",
+      "gridPos": { "x": 8, "y": 4, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "aws_rds_read_latency_average{dimension_DBInstanceIdentifier=~\"$rds_instance\"}",
+          "legendFormat": "{{ dimension_DBInstanceIdentifier }}"
+        }
+      ],
+      "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "value": null, "color": "green" }, { "value": 0.005, "color": "yellow" }, { "value": 0.02, "color": "red" }]
+          }
+        }
+      }
+    },
+
+    {
+      "id": 33,
+      "type": "stat",
+      "title": "Write Latency",
+      "description": "Average I/O write latency. Should be sub-millisecond for gp3 volumes.",
+      "gridPos": { "x": 12, "y": 4, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "aws_rds_write_latency_average{dimension_DBInstanceIdentifier=~\"$rds_instance\"}",
+          "legendFormat": "{{ dimension_DBInstanceIdentifier }}"
+        }
+      ],
+      "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "value": null, "color": "green" }, { "value": 0.005, "color": "yellow" }, { "value": 0.02, "color": "red" }]
+          }
+        }
+      }
+    },
+
+    {
+      "id": 7,
+      "type": "row",
+      "title": "Compute",
+      "collapsed": false,
+      "gridPos": { "x": 0, "y": 8, "w": 24, "h": 1 }
+    },
+
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "CPU Utilization",
+      "gridPos": { "x": 0, "y": 9, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "aws_rds_cpuutilization_average{dimension_DBInstanceIdentifier=~\"$rds_instance\"}",
+          "legendFormat": "{{ dimension_DBInstanceIdentifier }}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "custom": { "lineWidth": 2 },
+          "thresholds": { "mode": "absolute", "steps": [{ "value": null, "color": "green" }, { "value": 70, "color": "yellow" }, { "value": 90, "color": "red" }] }
+        }
+      },
+      "options": { "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Burst Balance",
+      "description": "When this reaches 0%, CPU is throttled. Sustained workloads on t-type instances should stay above 20%.",
+      "gridPos": { "x": 12, "y": 9, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "aws_rds_burst_balance_average{dimension_DBInstanceIdentifier=~\"$rds_instance\"}",
+          "legendFormat": "{{ dimension_DBInstanceIdentifier }}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "custom": { "lineWidth": 2 },
+          "thresholds": { "mode": "absolute", "steps": [{ "value": null, "color": "red" }, { "value": 20, "color": "yellow" }, { "value": 50, "color": "green" }] }
+        }
+      },
+      "options": { "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+
+    {
+      "id": 10,
+      "type": "row",
+      "title": "Memory & Storage",
+      "collapsed": false,
+      "gridPos": { "x": 0, "y": 17, "w": 24, "h": 1 }
+    },
+
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Memory – Freeable & Swap",
+      "description": "Swap > 0 means postgres has exceeded available RAM. Any sustained swap usage is a resize signal.",
+      "gridPos": { "x": 0, "y": 18, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "aws_rds_freeable_memory_average{dimension_DBInstanceIdentifier=~\"$rds_instance\"}",
+          "legendFormat": "{{ dimension_DBInstanceIdentifier }}"
+        },
+        {
+          "refId": "B",
+          "expr": "aws_rds_swap_usage_average{dimension_DBInstanceIdentifier=~\"$rds_instance\"}",
+          "legendFormat": "{{ dimension_DBInstanceIdentifier }}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "bytes" },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Swap Usage" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }]
+          }
+        ]
+      },
+      "options": { "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Free Storage Space",
+      "gridPos": { "x": 8, "y": 18, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "aws_rds_free_storage_space_average{dimension_DBInstanceIdentifier=~\"$rds_instance\"}",
+          "legendFormat": "{{ dimension_DBInstanceIdentifier }}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "bytes" } },
+      "options": { "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Disk Queue Depth",
+      "description": "Sustained queue depth > 1 means storage throughput is saturated. Expect latency spikes when this is elevated.",
+      "gridPos": { "x": 16, "y": 18, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "aws_rds_disk_queue_depth_average{dimension_DBInstanceIdentifier=~\"$rds_instance\"}",
+          "legendFormat": "{{ dimension_DBInstanceIdentifier }}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "value": null, "color": "green" }, { "value": 1, "color": "yellow" }, { "value": 5, "color": "red" }] },
+          "custom": { "lineWidth": 2 }
+        }
+      },
+      "options": { "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+
+    {
+      "id": 14,
+      "type": "row",
+      "title": "I/O",
+      "collapsed": false,
+      "gridPos": { "x": 0, "y": 26, "w": 24, "h": 1 }
+    },
+
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "IOPS – Read & Write",
+      "gridPos": { "x": 0, "y": 27, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "aws_rds_read_iops_average{dimension_DBInstanceIdentifier=~\"$rds_instance\"}",
+          "legendFormat": "{{ dimension_DBInstanceIdentifier }}"
+        },
+        {
+          "refId": "B",
+          "expr": "aws_rds_write_iops_average{dimension_DBInstanceIdentifier=~\"$rds_instance\"}",
+          "legendFormat": "{{ dimension_DBInstanceIdentifier }}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "iops" } },
+      "options": { "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "Latency – Read & Write",
+      "gridPos": { "x": 12, "y": 27, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "aws_rds_read_latency_average{dimension_DBInstanceIdentifier=~\"$rds_instance\"}",
+          "legendFormat": "{{ dimension_DBInstanceIdentifier }}"
+        },
+        {
+          "refId": "B",
+          "expr": "aws_rds_write_latency_average{dimension_DBInstanceIdentifier=~\"$rds_instance\"}",
+          "legendFormat": "{{ dimension_DBInstanceIdentifier }}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "options": { "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+
+    {
+      "id": 17,
+      "type": "row",
+      "title": "Connections & PostgreSQL Health",
+      "collapsed": false,
+      "gridPos": { "x": 0, "y": 35, "w": 24, "h": 1 }
+    },
+
+    {
+      "id": 18,
+      "type": "timeseries",
+      "title": "Database Connections",
+      "gridPos": { "x": 0, "y": 36, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "aws_rds_database_connections_sum{dimension_DBInstanceIdentifier=~\"$rds_instance\"}",
+          "legendFormat": "{{ dimension_DBInstanceIdentifier }}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "none" } },
+      "options": { "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+
+    {
+      "id": 19,
+      "type": "timeseries",
+      "title": "Deadlocks",
+      "description": "Any deadlocks indicate transaction ordering issues in application code. Should be zero in steady state.",
+      "gridPos": { "x": 8, "y": 36, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "aws_rds_deadlocks_sum{dimension_DBInstanceIdentifier=~\"$rds_instance\"}",
+          "legendFormat": "{{ dimension_DBInstanceIdentifier }}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "value": null, "color": "green" }, { "value": 1, "color": "red" }] }
+        }
+      },
+      "options": { "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "Maximum Used Transaction IDs",
+      "description": "PostgreSQL anti-wraparound. If this climbs toward 2 billion autovacuum is falling behind — emergency VACUUM FREEZE required before it reaches ~1.6B.",
+      "gridPos": { "x": 16, "y": 36, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "aws_rds_maximum_used_transaction_ids_average{dimension_DBInstanceIdentifier=~\"$rds_instance\"}",
+          "legendFormat": "{{ dimension_DBInstanceIdentifier }}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "value": null, "color": "green" },
+              { "value": 500000000, "color": "yellow" },
+              { "value": 1000000000, "color": "red" }
+            ]
+          }
+        }
+      },
+      "options": { "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+
+    {
+      "id": 22,
+      "type": "row",
+      "title": "Network",
+      "collapsed": false,
+      "gridPos": { "x": 0, "y": 44, "w": 24, "h": 1 }
+    },
+
+    {
+      "id": 23,
+      "type": "timeseries",
+      "title": "Network Throughput – Receive & Transmit",
+      "gridPos": { "x": 0, "y": 45, "w": 24, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "aws_rds_network_receive_throughput_average{dimension_DBInstanceIdentifier=~\"$rds_instance\"}",
+          "legendFormat": "{{ dimension_DBInstanceIdentifier }}"
+        },
+        {
+          "refId": "B",
+          "expr": "aws_rds_network_transmit_throughput_average{dimension_DBInstanceIdentifier=~\"$rds_instance\"}",
+          "legendFormat": "{{ dimension_DBInstanceIdentifier }}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "Bps" } },
+      "options": { "tooltip": { "mode": "multi", "sort": "desc" } }
+    }
+
+  ],
+  "annotations": { "list": [] },
+  "links": []
+}

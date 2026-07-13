@@ -1,0 +1,29 @@
+{{- if .Values.storeGateway.enabled }}
+apiVersion: monitoring.thanos.io/v1alpha1
+kind: ThanosStore
+metadata:
+  name: thanos-store
+  namespace: {{ include "thanos-operator.namespace" . }}
+  labels:
+    {{- include "thanos-operator.labels" . | nindent 4 }}
+  annotations:
+    {{- include "thanos-operator.annotations" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.storeGateway.replicas }}
+  resourceRequirements:
+    requests:
+      cpu: {{ .Values.storeGateway.resources.requests.cpu }}
+      memory: {{ .Values.storeGateway.resources.requests.memory }}
+    limits:
+      memory: {{ .Values.storeGateway.resources.limits.memory }}
+  objectStorageConfig:
+    name: {{ .Values.objectStore.secretName }}
+    key: objstore.yml
+  shardingStrategy:
+    type: block
+  storage:
+    size: {{ .Values.storeGateway.storage.size }}
+    {{- if .Values.storeGateway.storage.storageClass }}
+    storageClass: {{ .Values.storeGateway.storage.storageClass }}
+    {{- end }}
+{{- end }}

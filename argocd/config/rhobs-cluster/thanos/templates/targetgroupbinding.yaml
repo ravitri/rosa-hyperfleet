@@ -1,0 +1,36 @@
+{{- if .Values.thanos.targetGroup.arn }}
+apiVersion: eks.amazonaws.com/v1
+kind: TargetGroupBinding
+metadata:
+  name: thanos-receive
+  namespace: {{ include "thanos-operator.namespace" . }}
+  labels:
+    {{- include "thanos-operator.labels" . | nindent 4 }}
+  annotations:
+    {{- include "thanos-operator.annotations" . | nindent 4 }}
+spec:
+  serviceRef:
+    # Service created by thanos-community operator for the router
+    name: {{ .Values.thanos.targetGroup.serviceName | default "thanos-receive-router-thanos-receive" }}
+    port: {{ .Values.thanos.targetGroup.port | default 19291 }}
+  targetGroupARN: {{ .Values.thanos.targetGroup.arn | quote }}
+  targetType: {{ .Values.thanos.targetGroup.targetType | default "ip" }}
+{{- end }}
+---
+{{- if .Values.thanos.queryTargetGroup.arn }}
+apiVersion: eks.amazonaws.com/v1
+kind: TargetGroupBinding
+metadata:
+  name: thanos-query-frontend
+  namespace: {{ include "thanos-operator.namespace" . }}
+  labels:
+    {{- include "thanos-operator.labels" . | nindent 4 }}
+  annotations:
+    {{- include "thanos-operator.annotations" . | nindent 4 }}
+spec:
+  serviceRef:
+    name: {{ .Values.thanos.queryTargetGroup.serviceName | default "thanos-query-frontend-thanos-query" }}
+    port: {{ .Values.thanos.queryTargetGroup.port | default 9090 }}
+  targetGroupARN: {{ .Values.thanos.queryTargetGroup.arn | quote }}
+  targetType: {{ .Values.thanos.queryTargetGroup.targetType | default "ip" }}
+{{- end }}

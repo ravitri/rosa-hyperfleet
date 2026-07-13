@@ -38,11 +38,18 @@ echo "Running API e2e tests against ${BASE_URL}"
 
 # RHOBS API URL for observability E2E tests (Thanos Query read path).
 # The query path is always available — uses the same invoke URL as remote-write.
+# Resolution order: env var > creds file > RHOBS cluster outputs > RC outputs (transition)
 if [[ -z "${RHOBS_API_URL:-}" ]]; then
   if [[ -r "${CREDS_DIR}/rhobs_api_url" ]]; then
     RHOBS_API_URL="$(cat "${CREDS_DIR}/rhobs_api_url")"
-  elif [[ -n "${TF_OUTPUTS:-}" && -r "${TF_OUTPUTS:-}" ]]; then
-    RHOBS_API_URL="$(jq -r '.rhobs_api_url.value // empty' "${TF_OUTPUTS}")"
+  else
+    RHOBS_TF_OUTPUTS="${SHARED_DIR}/rhobs-terraform-outputs.json"
+    if [[ -r "${RHOBS_TF_OUTPUTS}" ]]; then
+      RHOBS_API_URL="$(jq -r '.rhobs_api_url.value // empty' "${RHOBS_TF_OUTPUTS}")"
+    fi
+    if [[ -z "${RHOBS_API_URL:-}" && -n "${TF_OUTPUTS:-}" && -r "${TF_OUTPUTS:-}" ]]; then
+      RHOBS_API_URL="$(jq -r '.rhobs_api_url.value // empty' "${TF_OUTPUTS}")"
+    fi
   fi
 fi
 if [[ -n "${RHOBS_API_URL:-}" ]]; then

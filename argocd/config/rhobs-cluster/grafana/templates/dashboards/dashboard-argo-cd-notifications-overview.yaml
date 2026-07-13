@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-argo-cd-notifications-overview
+  namespace: {{ .Release.Namespace }}
+  labels:
+    grafana_dashboard: "1"
+  annotations:
+    k8s-sidecar-target-directory: "ArgoCD"
+data:
+  argo-cd-notifications-overview.json: {{ .Files.Get "dashboards/argocd/argo-cd-notifications-overview.json" | quote }}

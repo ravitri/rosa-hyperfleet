@@ -4,6 +4,38 @@ global:
   environment: ""
   aws_region: ""
   cluster_name: ""
+  rhobs_api_url: ""
+
+# =====================================================================
+# sigv4-proxy-logs: signs Loki push requests with SigV4 for the RHOBS API Gateway.
+# Same architecture as sigv4-proxy-logs on MC.
+# =====================================================================
+sigv4ProxyLogs:
+  image:
+    repository: public.ecr.aws/aws-observability/aws-sigv4-proxy
+    tag: "1.11"
+    pullPolicy: IfNotPresent
+  port: 8006
+  replicas: 2
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 65534
+    runAsGroup: 65534
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
 
 # =====================================================================
 # Upstream vector/vector subchart values
@@ -146,7 +178,8 @@ vector:
       loki:
         type: loki
         inputs: [add_cluster_metadata]
-        endpoint: "http://loki-distributor.loki.svc:3100"
+        endpoint: "http://sigv4-proxy-logs.vector.svc:8006"
+        path: "/prod/loki/api/v1/push"
         encoding:
           codec: json
         labels:

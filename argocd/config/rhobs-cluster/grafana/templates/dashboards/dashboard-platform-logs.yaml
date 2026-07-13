@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-log-explorer
+  namespace: {{ .Release.Namespace }}
+  labels:
+    grafana_dashboard: "1"
+  annotations:
+    k8s-sidecar-target-directory: "Logging"
+data:
+  log-explorer.json: {{ .Files.Get "dashboards/logging/log-explorer.json" | quote }}

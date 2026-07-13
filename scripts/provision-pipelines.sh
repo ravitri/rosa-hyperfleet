@@ -381,6 +381,79 @@ for region_dir in deploy/${ENVIRONMENT}/*/; do
         done
     fi
 
+    # 3. Check for rhobs-cluster.json in this region
+    if [ -f "${region_dir}pipeline-provisioner-inputs/rhobs-cluster.json" ]; then
+        RHOBS_CONFIG="${region_dir}pipeline-provisioner-inputs/rhobs-cluster.json"
+
+        # Extract configuration from JSON
+        AWS_REGION=$(jq -r '.region // .target_region // "us-east-1"' "$RHOBS_CONFIG")
+        TARGET_ACCOUNT_ID=$(jq -r '.account_id // ""' "$RHOBS_CONFIG")
+        TARGET_ACCOUNT_ID=$(resolve_ssm_param "$TARGET_ACCOUNT_ID")
+        REGIONAL_ID=$(jq -r '.regional_id // ""' "$RHOBS_CONFIG")
+
+        # Read delete_pipeline from the rhobs-cluster provisioner input
+        DELETE_FLAG=$(jq -r '.delete_pipeline // false' "$RHOBS_CONFIG")
+
+        # TEMPORARY CI HACK (see top of file)
+        # Sets DELETE_FLAG to true if FORCE_DELETE_ALL_PIPELINES is true
+        [ "$FORCE_DELETE_ALL_PIPELINES" == "true" ] && DELETE_FLAG="true"
+
+        if [[ -z "$TARGET_ACCOUNT_ID" ]]; then
+            echo "ERROR: account_id must be provided for RHOBS cluster in region ${AWS_REGION}" >&2
+            exit 1
+        fi
+
+        bootstrap_target_state_bucket "$TARGET_ACCOUNT_ID" "$AWS_REGION"
+
+        cd terraform/config/pipeline-rhobs-cluster
+
+        terraform init \
+            -reconfigure \
+            -backend-config="bucket=$TF_STATE_BUCKET" \
+            -backend-config="key=pipelines/rhobs-${ENVIRONMENT}-${REGION_DEPLOYMENT}-${REGIONAL_ID}.tfstate" \
+            -backend-config="region=$TF_STATE_REGION" \
+            -backend-config="use_lockfile=true"
+
+        # Build terraform apply command with variables (array for safe expansion)
+        TF_ARGS=(
+            -var="github_repository=${GITHUB_REPOSITORY}"
+            -var="github_branch=${GITHUB_BRANCH}"
+            -var="region=${AWS_REGION}"
+        )
+        [ -n "$GITHUB_CONNECTION_ARN" ] && TF_ARGS+=( -var="github_connection_arn=${GITHUB_CONNECTION_ARN}" )
+        [ -n "$TARGET_ACCOUNT_ID" ] && TF_ARGS+=( -var="target_account_id=${TARGET_ACCOUNT_ID}" )
+        [ -n "$AWS_REGION" ] && TF_ARGS+=( -var="target_region=${AWS_REGION}" )
+        [ -n "$REGIONAL_ID" ] && TF_ARGS+=( -var="regional_id=${REGIONAL_ID}" )
+        [ -n "$ENVIRONMENT" ] && TF_ARGS+=( -var="target_environment=${ENVIRONMENT}" )
+        # Repository URL and branch for cluster configuration
+        TF_ARGS+=(
+            -var="repository_url=https://github.com/${GITHUB_REPOSITORY}.git"
+            -var="repository_branch=${GITHUB_BRANCH}"
+            -var="codebuild_image=${PLATFORM_IMAGE}"
+        )
+        # DNS configuration (optional)
+        [ -n "$ENVIRONMENT_HOSTED_ZONE_ID" ] && TF_ARGS+=( -var="environment_hosted_zone_id=${ENVIRONMENT_HOSTED_ZONE_ID}" )
+
+        if [ "$DELETE_FLAG" == "true" ]; then
+            if destroy_pipeline "rhobs"; then
+                cd ../../..
+            else
+                cd ../../..
+                echo "ERROR: RHOBS pipeline destroy failed for ${ENVIRONMENT}-${REGION_DEPLOYMENT}, manual intervention required" >&2
+                exit 1
+            fi
+        else
+            if retry_terraform_apply "${TF_ARGS[@]}"; then
+                cd ../../..
+            else
+                cd ../../..
+                echo "ERROR: RHOBS pipeline failed for ${ENVIRONMENT}-${REGION_DEPLOYMENT} after retries" >&2
+                PROVISION_FAILURES=$((PROVISION_FAILURES + 1))
+                continue
+            fi
+        fi
+    fi
+
 done
 
 if [ "$PROVISION_FAILURES" -gt 0 ]; then

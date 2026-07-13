@@ -1,0 +1,38 @@
+{{- /*
+  Generates a ConfigMap with CloudWatch Logs datasource provisioning YAML
+  for each Management Cluster. Parses global.management_clusters (comma-separated
+  colon-delimited entries like "mc01:123456789012,mc02:987654321098") and creates
+  one datasource per MC that assumes the cross-account reader role.
+*/ -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-mc-cw-datasources
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    grafana_datasource: "1"
+data:
+  mc-datasources.yaml: |
+    apiVersion: 1
+    datasources:
+{{- $raw := .Values.global.management_clusters | default "" }}
+{{- if $raw }}
+{{- range $entry := splitList "," $raw }}
+{{- $parts := splitList ":" $entry }}
+{{- if ge (len $parts) 2 }}
+      - name: "CloudWatch Logs ({{ index $parts 0 }})"
+        type: cloudwatch
+        access: proxy
+        editable: false
+        jsonData:
+          authType: default
+          defaultRegion: {{ $.Values.global.aws_region }}
+          assumeRoleArn: "arn:aws:iam::{{ index $parts 1 }}:role/{{ index $parts 0 }}-grafana-cw-logs-reader"
+          logsTimeout: "15m"
+{{- end }}
+{{- end }}
+{{- else }}
+      []
+{{- end }}

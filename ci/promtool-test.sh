@@ -5,7 +5,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CHART_DIR="${REPO_ROOT}/argocd/config/regional-cluster/alerting-rules"
+CHART_DIR="${REPO_ROOT}/argocd/config/rhobs-cluster/alerting-rules"
 TEST_DIR="${REPO_ROOT}/ci/promtool-test"
 WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "${WORK_DIR}"' EXIT

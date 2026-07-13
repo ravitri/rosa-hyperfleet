@@ -1,0 +1,138 @@
+pagerduty:
+  enabled: false
+
+kube-prometheus-stack:
+  nameOverride: "monitoring"
+  namespaceOverride: "monitoring"
+
+  crds:
+    enabled: true
+
+  defaultRules:
+    create: false
+
+  alertmanager:
+    enabled: true
+    tplConfig: true
+    config:
+      route:
+        receiver: "null"
+        routes:
+          - receiver: sns-alerts
+            continue: true
+          - receiver: pagerduty
+            match_re:
+              severity: "warning|critical"
+            continue: true
+      receivers:
+        - name: "null"
+        - name: sns-alerts
+          sns_configs:
+            - topic_arn: 'arn:aws:sns:{{ .Values.global.aws_region }}:{{ .Values.global.aws_account_id }}:{{ .Values.global.cluster_name }}-alerts'
+              sigv4:
+                region: '{{ .Values.global.aws_region }}'
+              send_resolved: true
+        - name: pagerduty
+          pagerduty_configs:
+            - routing_key_file: /etc/alertmanager/secrets/pagerduty-integration-key/integration_key
+              severity: '{{ "{{" }} if .CommonLabels.severity {{ "}}" }}{{ "{{" }} .CommonLabels.severity {{ "}}" }}{{ "{{" }} else {{ "}}" }}critical{{ "{{" }} end {{ "}}" }}'
+              send_resolved: true
+    alertmanagerSpec:
+      secrets:
+        - pagerduty-integration-key
+      replicas: 2
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          memory: 128Mi
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: alertmanager
+  grafana:
+    enabled: false
+
+  prometheusOperator:
+    admissionWebhooks:
+      create:
+        ttlSecondsAfterFinished: 600
+      patch:
+        ttlSecondsAfterFinished: 600
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        memory: 256Mi
+    prometheusConfigReloader:
+      resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi
+        limits:
+          memory: 64Mi
+
+  kube-state-metrics:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        memory: 256Mi
+
+  prometheus-node-exporter:
+    priorityClassName: system-node-critical
+    tolerations:
+      - operator: Exists
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        memory: 128Mi
+
+  prometheus:
+    prometheusSpec:
+      replicas: 2
+      retention: "14d"
+      retentionSize: "85GB"
+      serviceMonitorSelectorNilUsesHelmValues: false
+      externalLabels:
+        cluster: '{{ required "global.cluster_name is required" .Values.global.cluster_name }}'
+        cluster_type: '{{ .Values.global.cluster_type | default "rhobs" }}'
+      resources:
+        requests:
+          cpu: 200m
+          memory: 1Gi
+        limits:
+          memory: 2Gi
+
+      serviceMonitorNamespaceSelector: {}
+      serviceMonitorSelector: {}
+
+      podMonitorSelectorNilUsesHelmValues: false
+      podMonitorNamespaceSelector: {}
+      podMonitorSelector: {}
+
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+
+      storageSpec:
+        volumeClaimTemplate:
+          metadata:
+            name: prometheus-data
+          spec:
+            accessModes: ["ReadWriteOnce"]
+            resources:
+              requests:
+                storage: 100Gi

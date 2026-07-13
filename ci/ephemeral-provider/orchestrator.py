@@ -115,6 +115,8 @@ class EphemeralEnvOrchestrator:
 
         if save_state:
             self._save_terraform_outputs(git, save_state)
+            rhobs_dest = str(Path(save_state).parent / "rhobs-terraform-outputs.json")
+            self._save_rhobs_terraform_outputs(git, rhobs_dest)
 
     def teardown(self, fire_and_forget: bool = False):
         """Tear down a previously provisioned ephemeral environment.
@@ -476,6 +478,68 @@ class EphemeralEnvOrchestrator:
         dest_path.parent.mkdir(parents=True, exist_ok=True)
         dest_path.write_text(result.stdout)
         log.info("Terraform outputs written to %s", dest)
+
+    def _save_rhobs_terraform_outputs(self, git: GitManager, dest: str):
+        """Fetch RHOBS cluster terraform outputs and write them to a file.
+
+        Connects to the rhobs-cluster remote state in the RC account's
+        S3 bucket and runs ``terraform output --json``.
+        """
+        log.info("")
+        log.info("==========================================")
+        log.info("Saving RHOBS Cluster Terraform Outputs")
+        log.info("==========================================")
+
+        regional_account_id = self.aws.get_target_account_id("regional")
+        state_bucket = f"terraform-state-{regional_account_id}-{self.region}"
+        state_key = f"rhobs-cluster/{self.eph_prefix}-regional.tfstate"
+        tf_dir = git.work_dir / "terraform" / "config" / "rhobs-cluster"
+
+        env = os.environ.copy()
+        env.update(self.aws.target_subprocess_env("regional"))
+
+        log.info("State bucket: %s  key: %s", state_bucket, state_key)
+
+        try:
+            subprocess.run(
+                [
+                    "terraform", "init", "-reconfigure",
+                    f"-backend-config=bucket={state_bucket}",
+                    f"-backend-config=key={state_key}",
+                    f"-backend-config=region={self.region}",
+                    "-backend-config=use_lockfile=true",
+                ],
+                cwd=tf_dir,
+                env=env,
+                check=True,
+                timeout=120,
+            )
+        except subprocess.TimeoutExpired as e:
+            raise RuntimeError(
+                f"terraform init timed out for {tf_dir} "
+                f"(bucket={state_bucket}, key={state_key})"
+            ) from e
+
+        try:
+            result = subprocess.run(
+                ["terraform", "output", "--json"],
+                cwd=tf_dir,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=60,
+            )
+        except subprocess.TimeoutExpired as e:
+            raise RuntimeError(
+                f"terraform output timed out for {tf_dir} "
+                f"(bucket={state_bucket}, key={state_key})"
+            ) from e
+
+        dest_path = Path(dest)
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+        dest_path.write_text(result.stdout)
+        log.info("RHOBS terraform outputs written to %s", dest)
 
     def _purge_clusters(self, git: GitManager):
         """Delete all clusters and resource bundles via Platform API before infra teardown.

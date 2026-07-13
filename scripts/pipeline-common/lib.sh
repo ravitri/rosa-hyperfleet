@@ -175,8 +175,10 @@ config_load() {
         DEPLOY_CONFIG_FILE="deploy/${ENVIRONMENT}/${TARGET_REGION}/pipeline-regional-cluster-inputs/terraform.json"
     elif [[ "$mode" == "management" ]]; then
         DEPLOY_CONFIG_FILE="deploy/${ENVIRONMENT}/${TARGET_REGION}/pipeline-management-cluster-${MANAGEMENT_ID}-inputs/terraform.json"
+    elif [[ "$mode" == "rhobs" ]]; then
+        DEPLOY_CONFIG_FILE="deploy/${ENVIRONMENT}/${TARGET_REGION}/pipeline-rhobs-cluster-inputs/terraform.json"
     else
-        echo "ERROR: config_load: unknown mode '$mode' (expected 'regional' or 'management')" >&2
+        echo "ERROR: config_load: unknown mode '$mode' (expected 'regional', 'management', or 'rhobs')" >&2
         exit 1
     fi
 
@@ -316,8 +318,8 @@ bootstrap_argocd() {
     local cluster_type="$1"
     local target_account_id="$2"
 
-    if [[ "$cluster_type" != "regional-cluster" && "$cluster_type" != "management-cluster" ]]; then
-        echo "ERROR: cluster-type must be 'regional-cluster' or 'management-cluster'" >&2
+    if [[ "$cluster_type" != "regional-cluster" && "$cluster_type" != "management-cluster" && "$cluster_type" != "rhobs-cluster" ]]; then
+        echo "ERROR: cluster-type must be 'regional-cluster', 'management-cluster', or 'rhobs-cluster'" >&2
         exit 1
     fi
 

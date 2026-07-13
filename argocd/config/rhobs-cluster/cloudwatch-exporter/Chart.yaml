@@ -1,0 +1,10 @@
+apiVersion: v2
+name: cloudwatch-exporter
+description: CloudWatch metrics exporter (YACE) with EKS Pod Identity
+type: application
+version: 0.1.0
+
+dependencies:
+  - name: prometheus-yet-another-cloudwatch-exporter
+    version: 0.45.0
+    repository: https://prometheus-community.github.io/helm-charts

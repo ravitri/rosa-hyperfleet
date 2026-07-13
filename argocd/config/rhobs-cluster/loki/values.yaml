@@ -1,0 +1,350 @@
+# Injected by ApplicationSet at runtime — defaults here for helm lint only
+global:
+  cluster_type: ""
+  environment: ""
+  aws_region: ""
+  cluster_name: ""
+  aws_account_id: ""
+
+# Platform-level values consumed by our wrapper templates (targetgroupbinding, serviceaccount, etc.)
+# Separate from the "loki:" key which is reserved for the grafana/loki subchart.
+platform:
+  # KMS key ARN for client-side SSE-KMS (defense-in-depth, matches Thanos pattern).
+  # Injected at runtime by the ApplicationSet from loki_kms_key_arn annotation.
+  kmsKeyArn: ""
+  # In Distributed mode, ALB routes to individual component services.
+  distributorTargetGroup:
+    arn: ""
+    serviceName: loki-distributor
+    port: 3100
+    targetType: ip
+  queryFrontendTargetGroup:
+    arn: ""
+    serviceName: loki-query-frontend
+    port: 3100
+    targetType: ip
+
+serviceAccount:
+  name: loki
+  annotations: {}
+
+# =====================================================================
+# grafana/loki subchart values — Distributed (microservices) mode
+#
+# Each Loki component runs as a separate Deployment/StatefulSet.
+# Mirrors RHOBS LokiStack 1x.extra-small architecture.
+#
+# Production replicas (env-overlay):
+#   distributor: 3-6, ingester: 3-6, querier: 2, queryFrontend: 2
+#   indexGateway: 2, compactor: 1
+#   replication_factor: 2
+# =====================================================================
+loki:
+  deploymentMode: Distributed
+
+  loki:
+    # Single tenant — no gateway or multi-tenancy needed.
+    auth_enabled: false
+
+    commonConfig:
+      path_prefix: /var/loki
+      # IMPORTANT: replication_factor must be <= ingester replicas.
+      # Ephemeral (1 replica): RF=1. Production (3+ replicas): RF=2.
+      # Override via env-overlay argocd-values-regional-cluster.yaml.
+      replication_factor: 1
+
+    # Maps to: spec.storage.schemas[0]
+    schemaConfig:
+      configs:
+        - from: "2025-06-06"
+          store: tsdb
+          object_store: s3
+          schema: v13
+          index:
+            prefix: index_
+            period: 24h
+
+    # S3 auth is via EKS Pod Identity (transparent via AWS SDK env vars).
+    storage:
+      type: s3
+      s3:
+        region: ""
+        s3ForcePathStyle: false
+        sse:
+          type: SSE-KMS
+          kms_key_id: ""
+      bucketNames:
+        chunks: ""
+        ruler: ""
+
+    # Aligned with RHOBS production baseline.
+    limits_config:
+      ingestion_rate_mb: 20
+      ingestion_burst_size_mb: 256
+      max_line_size: 2097152
+      per_stream_rate_limit: 15MB
+      per_stream_rate_limit_burst: 30MB
+      query_timeout: 5m
+      retention_period: 2160h               # 90 days
+      reject_old_samples: true
+      reject_old_samples_max_age: 168h
+      split_queries_by_interval: 15m
+      volume_enabled: true
+
+    compactor:
+      retention_enabled: true
+      delete_request_store: s3
+
+    server:
+      http_listen_port: 3100
+      grpc_listen_port: 9095
+      http_server_read_timeout: 600s
+      http_server_write_timeout: 600s
+
+    # Disable query-scheduler discovery so query-frontend operates in
+    # standalone mode (internal queuing). Without this, the chart defaults
+    # to connecting to loki-query-scheduler which we don't deploy.
+    # References:
+    #   - https://github.com/grafana/loki/issues/12138
+    #   - https://github.com/grafana/loki/issues/12506
+    query_scheduler:
+      max_outstanding_requests_per_tenant: 32768
+      use_scheduler_ring: false
+
+    frontend:
+      scheduler_address: ""
+
+    frontend_worker:
+      scheduler_address: ""
+      frontend_address: "loki-query-frontend.loki.svc.cluster.local:9095"
+
+  # ==========================================================================
+  # Distributed mode components
+  # Resource requests from RHOBS operator 1x.extra-small size template.
+  # Replicas set to 1 for ephemeral; production values in comments.
+  # ==========================================================================
+
+  # Receives pushes, validates, hashes, routes to ingesters
+  # RHOBS production: 6 replicas
+  distributor:
+    replicas: 1  # production: 3-6
+    resources:
+      requests:
+        cpu: "1"
+        memory: 1Gi
+      limits:
+        memory: 2Gi
+    affinity:
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/component: distributor
+              topologyKey: kubernetes.io/hostname
+          - weight: 50
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/component: distributor
+              topologyKey: topology.kubernetes.io/zone
+
+  # Writes chunks to S3, holds recent data in WAL
+  # RHOBS production: 6 replicas
+  ingester:
+    replicas: 1  # production: 3-6 (must be >= replication_factor)
+    zoneAwareReplication:
+      enabled: false
+    resources:
+      requests:
+        cpu: "2"
+        memory: 8Gi
+      limits:
+        memory: 10Gi
+    persistence:
+      enabled: true
+      size: 10Gi
+      storageClass: gp3
+    affinity:
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/component: ingester
+              topologyKey: kubernetes.io/hostname
+          - weight: 50
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/component: ingester
+              topologyKey: topology.kubernetes.io/zone
+
+  # Executes LogQL queries against stored data
+  # RHOBS production: 2 replicas
+  querier:
+    replicas: 1  # production: 2
+    resources:
+      requests:
+        cpu: "1500m"
+        memory: 3Gi
+      limits:
+        memory: 4Gi
+    affinity:
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/component: querier
+              topologyKey: kubernetes.io/hostname
+          - weight: 50
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/component: querier
+              topologyKey: topology.kubernetes.io/zone
+
+  # Splits/caches queries, entry point for Grafana and API Gateway reads
+  # RHOBS production: 2 replicas
+  queryFrontend:
+    replicas: 1  # production: 2
+    resources:
+      requests:
+        cpu: "1"
+        memory: 1Gi
+      limits:
+        memory: 2Gi
+    affinity:
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/component: query-frontend
+              topologyKey: kubernetes.io/hostname
+          - weight: 50
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/component: query-frontend
+              topologyKey: topology.kubernetes.io/zone
+
+  # Not deployed — not used in RHOBS LokiStack, and not needed at our scale
+  # (single-tenant). Query-frontend handles queuing internally when no
+  # scheduler address is configured.
+  queryScheduler:
+    replicas: 0
+
+  # Compacts index/chunks, enforces retention
+  compactor:
+    replicas: 1
+    resources:
+      requests:
+        cpu: "1"
+        memory: 2Gi
+      limits:
+        memory: 4Gi
+    persistence:
+      enabled: true
+      size: 10Gi
+      storageClass: gp3
+    affinity:
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/component: compactor
+              topologyKey: kubernetes.io/hostname
+          - weight: 50
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/component: compactor
+              topologyKey: topology.kubernetes.io/zone
+
+  # Serves index lookups for querier
+  indexGateway:
+    replicas: 1  # production: 2
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        memory: 2Gi
+    persistence:
+      enabled: true
+      size: 50Gi
+      storageClass: gp3
+    affinity:
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/component: index-gateway
+              topologyKey: kubernetes.io/hostname
+          - weight: 50
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/component: index-gateway
+              topologyKey: topology.kubernetes.io/zone
+
+  # --- Explicitly disable SimpleScalable and SingleBinary targets ---
+  backend:
+    replicas: 0
+  read:
+    replicas: 0
+  write:
+    replicas: 0
+  singleBinary:
+    replicas: 0
+
+  # --- Bloom components (not used) ---
+  bloomPlanner:
+    replicas: 0
+  bloomBuilder:
+    replicas: 0
+  bloomGateway:
+    replicas: 0
+
+  # We manage the SA ourselves (with Pod Identity) via serviceaccount.yaml.
+  serviceAccount:
+    create: false
+    name: loki
+
+  # --- Monitoring ---
+  monitoring:
+    serviceMonitor:
+      enabled: true
+      labels: {}
+    selfMonitoring:
+      enabled: false
+      grafanaAgent:
+        installOperator: false
+
+  # --- Disabled components ---
+  minio:
+    enabled: false
+  lokiCanary:
+    enabled: false
+  test:
+    enabled: false
+  gateway:
+    enabled: false          # single tenant, auth at API Gateway level
+  rollout_operator:
+    enabled: false
+  chunksCache:
+    enabled: false          # can enable later with memcached
+  resultsCache:
+    enabled: false
+  ruler:
+    enabled: false

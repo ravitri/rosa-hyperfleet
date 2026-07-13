@@ -1,0 +1,28 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: hcp-installation
+  namespace: thanos
+  labels:
+    app.kubernetes.io/name: alerting-rules
+    app.kubernetes.io/managed-by: Helm
+    operator.thanos.io/prometheus-rule: "true"
+spec:
+  groups:
+    - name: hcp-installation-alerts
+      rules:
+        # Cluster has never become available and has exceeded the grace period.
+        # Warning severity — triggers automated remediation, not a human page.
+        - alert: HCPInstallTimeout15m
+          expr: |
+            hcp:lifecycle_installing > 900
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            summary: HCP install has not become available within 15 minutes
+            description: >-
+              HostedCluster {{ "{{" }} $labels.name {{ "}}" }} in namespace
+              {{ "{{" }} $labels.namespace {{ "}}" }} on cluster
+              {{ "{{" }} $labels.cluster {{ "}}" }} has never become available
+              and has been waiting for over 15 minutes.

@@ -1,0 +1,307 @@
+{
+  "title": "ALB",
+  "uid": "alb-overview",
+  "description": "Internal Application Load Balancer metrics. Covers target health, response times, and error rates for the API Gateway → ALB → Pod path.",
+  "tags": ["aws", "cloudwatch", "alb", "sre"],
+  "timezone": "browser",
+  "refresh": "1m",
+  "schemaVersion": 38,
+  "graphTooltip": 1,
+  "time": { "from": "now-3h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "label": "Datasource",
+        "query": "prometheus",
+        "current": { "text": "Thanos", "value": "Thanos" },
+        "hide": 0,
+        "refresh": 1
+      },
+      {
+        "name": "loadbalancer",
+        "type": "query",
+        "label": "Load Balancer",
+        "datasource": { "type": "prometheus", "uid": "${datasource}" },
+        "query": "label_values(aws_applicationelb_request_count_sum, dimension_LoadBalancer)",
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": { "text": "All", "value": "$__all" },
+        "sort": 1
+      },
+      {
+        "name": "targetgroup",
+        "type": "query",
+        "label": "Target Group",
+        "datasource": { "type": "prometheus", "uid": "${datasource}" },
+        "query": "label_values(aws_applicationelb_healthy_host_count_minimum{dimension_LoadBalancer=~\"$loadbalancer\"}, dimension_TargetGroup)",
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "current": { "text": "All", "value": "$__all" },
+        "sort": 1
+      }
+    ]
+  },
+  "panels": [
+
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Target Health",
+      "collapsed": false,
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 1 }
+    },
+
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Healthy Targets",
+      "description": "Minimum healthy targets across scrape windows. Any value below your total pod count warrants investigation.",
+      "gridPos": { "x": 0, "y": 1, "w": 6, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (dimension_TargetGroup) (aws_applicationelb_healthy_host_count_minimum{dimension_LoadBalancer=~\"$loadbalancer\", dimension_TargetGroup=~\"$targetgroup\"})",
+          "legendFormat": "{{ dimension_TargetGroup }}"
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "reduceOptions": { "calcs": ["lastNotNull"] }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "value": null, "color": "red" }, { "value": 1, "color": "yellow" }, { "value": 2, "color": "green" }]
+          }
+        }
+      }
+    },
+
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Unhealthy Targets",
+      "description": "Maximum unhealthy targets. Should always be 0. Any non-zero value means pods are failing ALB health checks.",
+      "gridPos": { "x": 6, "y": 1, "w": 6, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (dimension_TargetGroup) (aws_applicationelb_un_healthy_host_count_maximum{dimension_LoadBalancer=~\"$loadbalancer\", dimension_TargetGroup=~\"$targetgroup\"})",
+          "legendFormat": "{{ dimension_TargetGroup }}"
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "reduceOptions": { "calcs": ["lastNotNull"] }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "value": null, "color": "green" }, { "value": 1, "color": "red" }]
+          }
+        }
+      }
+    },
+
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Active Connections",
+      "gridPos": { "x": 12, "y": 1, "w": 6, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(aws_applicationelb_active_connection_count_sum{dimension_LoadBalancer=~\"$loadbalancer\"})",
+          "legendFormat": "Active"
+        }
+      ],
+      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "fieldConfig": { "defaults": { "unit": "none" } }
+    },
+
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Target Response Time (p99)",
+      "description": "99th percentile time for targets (pods) to respond. High values mean your application is slow.",
+      "gridPos": { "x": 18, "y": 1, "w": 6, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (dimension_TargetGroup) (aws_applicationelb_target_response_time_p99{dimension_LoadBalancer=~\"$loadbalancer\", dimension_TargetGroup=~\"$targetgroup\"})",
+          "legendFormat": "{{ dimension_TargetGroup }}"
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "reduceOptions": { "calcs": ["lastNotNull"] }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "value": null, "color": "green" }, { "value": 1, "color": "yellow" }, { "value": 5, "color": "red" }]
+          }
+        }
+      }
+    },
+
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Target Health – Healthy vs Unhealthy over Time",
+      "gridPos": { "x": 0, "y": 6, "w": 24, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (dimension_TargetGroup) (aws_applicationelb_healthy_host_count_minimum{dimension_LoadBalancer=~\"$loadbalancer\", dimension_TargetGroup=~\"$targetgroup\"})",
+          "legendFormat": "Healthy – {{ dimension_TargetGroup }}"
+        },
+        {
+          "refId": "B",
+          "expr": "max by (dimension_TargetGroup) (aws_applicationelb_un_healthy_host_count_maximum{dimension_LoadBalancer=~\"$loadbalancer\", dimension_TargetGroup=~\"$targetgroup\"})",
+          "legendFormat": "Unhealthy – {{ dimension_TargetGroup }}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "none", "min": 0 },
+        "overrides": [
+          {
+            "matcher": { "id": "byRegexp", "options": "/^Unhealthy/" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byRegexp", "options": "/^Healthy/" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }]
+          }
+        ]
+      },
+      "options": { "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+
+    {
+      "id": 7,
+      "type": "row",
+      "title": "Traffic & Errors",
+      "collapsed": false,
+      "gridPos": { "x": 0, "y": 14, "w": 24, "h": 1 }
+    },
+
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Request Count & HTTP Status Codes",
+      "description": "Total requests and breakdown by HTTP status category. 5XX from targets (pods) vs 5XX from the ELB itself helps isolate where failures originate.",
+      "gridPos": { "x": 0, "y": 15, "w": 24, "h": 10 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(aws_applicationelb_request_count_sum{dimension_LoadBalancer=~\"$loadbalancer\"})",
+          "legendFormat": "Total Requests"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (dimension_TargetGroup) (aws_applicationelb_httpcode_target_2_xx_count_sum{dimension_LoadBalancer=~\"$loadbalancer\", dimension_TargetGroup=~\"$targetgroup\"})",
+          "legendFormat": "2XX – {{ dimension_TargetGroup }}"
+        },
+        {
+          "refId": "C",
+          "expr": "sum by (dimension_TargetGroup) (aws_applicationelb_httpcode_target_4_xx_count_sum{dimension_LoadBalancer=~\"$loadbalancer\", dimension_TargetGroup=~\"$targetgroup\"})",
+          "legendFormat": "4XX – {{ dimension_TargetGroup }}"
+        },
+        {
+          "refId": "D",
+          "expr": "sum by (dimension_TargetGroup) (aws_applicationelb_httpcode_target_5_xx_count_sum{dimension_LoadBalancer=~\"$loadbalancer\", dimension_TargetGroup=~\"$targetgroup\"})",
+          "legendFormat": "5XX – {{ dimension_TargetGroup }}"
+        },
+        {
+          "refId": "E",
+          "expr": "max(aws_applicationelb_httpcode_elb_5_xx_count_sum{dimension_LoadBalancer=~\"$loadbalancer\"})",
+          "legendFormat": "ELB 5XX"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "none" },
+        "overrides": [
+          {
+            "matcher": { "id": "byRegexp", "options": "/^5XX/" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "ELB 5XX" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "dark-red", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byRegexp", "options": "/^4XX/" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "yellow", "mode": "fixed" } }]
+          }
+        ]
+      },
+      "options": { "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+
+    {
+      "id": 9,
+      "type": "row",
+      "title": "Latency",
+      "collapsed": false,
+      "gridPos": { "x": 0, "y": 25, "w": 24, "h": 1 }
+    },
+
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Target Response Time (Average & p99)",
+      "description": "Time for backend pods to respond. Average shows typical behavior; p99 shows tail latency. A widening gap between avg and p99 indicates some requests are much slower than others.",
+      "gridPos": { "x": 0, "y": 26, "w": 24, "h": 10 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (dimension_TargetGroup) (aws_applicationelb_target_response_time_average{dimension_LoadBalancer=~\"$loadbalancer\", dimension_TargetGroup=~\"$targetgroup\"})",
+          "legendFormat": "Avg – {{ dimension_TargetGroup }}"
+        },
+        {
+          "refId": "B",
+          "expr": "max by (dimension_TargetGroup) (aws_applicationelb_target_response_time_p99{dimension_LoadBalancer=~\"$loadbalancer\", dimension_TargetGroup=~\"$targetgroup\"})",
+          "legendFormat": "p99 – {{ dimension_TargetGroup }}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "s", "custom": { "lineWidth": 2 } },
+        "overrides": [
+          {
+            "matcher": { "id": "byRegexp", "options": "/^p99/" },
+            "properties": [{ "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [10, 10] } }]
+          }
+        ]
+      },
+      "options": { "tooltip": { "mode": "multi", "sort": "desc" } }
+    }
+
+  ],
+  "annotations": { "list": [] },
+  "links": []
+}

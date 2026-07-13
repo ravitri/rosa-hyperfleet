@@ -1,0 +1,3 @@
+externalSecrets:
+  serviceAccount: external-secrets
+  namespace: external-secrets

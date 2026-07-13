@@ -1,0 +1,250 @@
+{
+  "title": "API Gateway",
+  "uid": "api-gateway",
+  "description": "Regional Platform API metrics: request rate, error rates, and latency (p50/p99) for both the API Gateway stage and its backend integration.",
+  "tags": ["aws", "cloudwatch", "api-gateway", "sre"],
+  "timezone": "browser",
+  "refresh": "1m",
+  "schemaVersion": 38,
+  "graphTooltip": 1,
+  "time": { "from": "now-3h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "label": "Datasource",
+        "query": "prometheus",
+        "current": { "text": "Thanos", "value": "Thanos" },
+        "hide": 0,
+        "refresh": 1
+      },
+      {
+        "name": "apigw_name",
+        "type": "query",
+        "label": "API Gateway",
+        "datasource": { "type": "prometheus", "uid": "${datasource}" },
+        "query": "label_values(aws_apigateway_count_sample_count, dimension_ApiName)",
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "current": { "text": "All", "value": "$__all" },
+        "sort": 1
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "API Gateway",
+      "collapsed": false,
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 1 }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Request Rate",
+      "description": "Total API requests per scrape interval.",
+      "gridPos": { "x": 0, "y": 1, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (dimension_ApiName) (aws_apigateway_count_sample_count{dimension_ApiName=~\"$apigw_name\"})",
+          "legendFormat": "{{ dimension_ApiName }}"
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "reduceOptions": { "calcs": ["lastNotNull"] }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "value": null, "color": "blue" }] }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "4xx Errors",
+      "gridPos": { "x": 4, "y": 1, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (dimension_ApiName) (aws_apigateway_4_xxerror_sum{dimension_ApiName=~\"$apigw_name\"})",
+          "legendFormat": "{{ dimension_ApiName }}"
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "reduceOptions": { "calcs": ["lastNotNull"] }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "value": null, "color": "green" }, { "value": 1, "color": "yellow" }, { "value": 100, "color": "red" }]
+          }
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "5xx Errors",
+      "gridPos": { "x": 8, "y": 1, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (dimension_ApiName) (aws_apigateway_5_xxerror_sum{dimension_ApiName=~\"$apigw_name\"})",
+          "legendFormat": "{{ dimension_ApiName }}"
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "reduceOptions": { "calcs": ["lastNotNull"] }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "value": null, "color": "green" }, { "value": 1, "color": "red" }]
+          }
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Latency p50",
+      "gridPos": { "x": 12, "y": 1, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (dimension_ApiName) (aws_apigateway_latency_p50{dimension_ApiName=~\"$apigw_name\"})",
+          "legendFormat": "{{ dimension_ApiName }}"
+        }
+      ],
+      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "fieldConfig": { "defaults": { "unit": "ms" } }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Latency p99",
+      "gridPos": { "x": 16, "y": 1, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (dimension_ApiName) (aws_apigateway_latency_p99{dimension_ApiName=~\"$apigw_name\"})",
+          "legendFormat": "{{ dimension_ApiName }}"
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "reduceOptions": { "calcs": ["lastNotNull"] }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "value": null, "color": "green" }, { "value": 1000, "color": "yellow" }, { "value": 5000, "color": "red" }]
+          }
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Integration Latency p99",
+      "gridPos": { "x": 20, "y": 1, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (dimension_ApiName) (aws_apigateway_integration_latency_p99{dimension_ApiName=~\"$apigw_name\"})",
+          "legendFormat": "{{ dimension_ApiName }}"
+        }
+      ],
+      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "fieldConfig": { "defaults": { "unit": "ms" } }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "API GW – Request Count & Errors",
+      "gridPos": { "x": 0, "y": 5, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (dimension_ApiName) (aws_apigateway_count_sample_count{dimension_ApiName=~\"$apigw_name\"})",
+          "legendFormat": "{{ dimension_ApiName }} – Requests"
+        },
+        {
+          "refId": "B",
+          "expr": "max by (dimension_ApiName) (aws_apigateway_4_xxerror_sum{dimension_ApiName=~\"$apigw_name\"})",
+          "legendFormat": "{{ dimension_ApiName }} – 4xx"
+        },
+        {
+          "refId": "C",
+          "expr": "max by (dimension_ApiName) (aws_apigateway_5_xxerror_sum{dimension_ApiName=~\"$apigw_name\"})",
+          "legendFormat": "{{ dimension_ApiName }} – 5xx"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "none" } },
+      "options": { "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "API GW – Latency & Integration Latency (p50 / p99)",
+      "gridPos": { "x": 12, "y": 5, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (dimension_ApiName) (aws_apigateway_latency_p50{dimension_ApiName=~\"$apigw_name\"})",
+          "legendFormat": "{{ dimension_ApiName }} – Latency p50"
+        },
+        {
+          "refId": "B",
+          "expr": "max by (dimension_ApiName) (aws_apigateway_latency_p99{dimension_ApiName=~\"$apigw_name\"})",
+          "legendFormat": "{{ dimension_ApiName }} – Latency p99"
+        },
+        {
+          "refId": "C",
+          "expr": "max by (dimension_ApiName) (aws_apigateway_integration_latency_p50{dimension_ApiName=~\"$apigw_name\"})",
+          "legendFormat": "{{ dimension_ApiName }} – Integration p50"
+        },
+        {
+          "refId": "D",
+          "expr": "max by (dimension_ApiName) (aws_apigateway_integration_latency_p99{dimension_ApiName=~\"$apigw_name\"})",
+          "legendFormat": "{{ dimension_ApiName }} – Integration p99"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ms" } },
+      "options": { "tooltip": { "mode": "multi", "sort": "desc" } }
+    }
+  ],
+  "annotations": { "list": [] },
+  "links": []
+}

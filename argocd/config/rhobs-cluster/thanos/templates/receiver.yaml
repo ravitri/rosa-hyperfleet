@@ -1,0 +1,59 @@
+{{- if .Values.receive.enabled }}
+apiVersion: monitoring.thanos.io/v1alpha1
+kind: ThanosReceive
+metadata:
+  name: thanos-receive
+  namespace: {{ include "thanos-operator.namespace" . }}
+  labels:
+    {{- include "thanos-operator.labels" . | nindent 4 }}
+  annotations:
+    {{- include "thanos-operator.annotations" . | nindent 4 }}
+spec:
+  ingesterSpec:
+    defaultObjectStorageConfig:
+      name: {{ .Values.objectStore.secretName }}
+      key: objstore.yml
+    {{- if .Values.receive.additionalArgs }}
+    additionalArgs:
+      {{- range .Values.receive.additionalArgs }}
+      - {{ . | quote }}
+      {{- end }}
+    {{- end }}
+    hashrings:
+      - name: default
+        replicas: {{ .Values.receive.replicas }}
+        tsdbConfig:
+          retention: {{ .Values.receive.retention }}
+        {{- if .Values.receive.tooFarInFutureTimeWindow }}
+        tooFarInFutureTimeWindow: {{ .Values.receive.tooFarInFutureTimeWindow }}
+        {{- end }}
+        resourceRequirements:
+          requests:
+            cpu: {{ .Values.receive.resources.requests.cpu }}
+            memory: {{ .Values.receive.resources.requests.memory }}
+          limits:
+            memory: {{ .Values.receive.resources.limits.memory }}
+        storage:
+          size: {{ .Values.receive.storage.size }}
+          {{- if .Values.receive.storage.storageClass }}
+          storageClass: {{ .Values.receive.storage.storageClass }}
+          {{- end }}
+  routerSpec:
+    replicas: {{ .Values.receive.router.replicas | default 1 }}
+    replicationFactor: {{ .Values.receive.replicationFactor }}
+    resourceRequirements:
+      requests:
+        cpu: {{ .Values.receive.router.resources.requests.cpu }}
+        memory: {{ .Values.receive.router.resources.requests.memory }}
+      limits:
+        memory: {{ .Values.receive.router.resources.limits.memory }}
+    {{- if .Values.receive.router.additionalArgs }}
+    additionalArgs:
+      {{- range .Values.receive.router.additionalArgs }}
+      - {{ . | quote }}
+      {{- end }}
+    {{- end }}
+    externalLabels:
+      receive: "true"
+      region: {{ .Values.global.aws_region | quote }}
+{{- end }}
