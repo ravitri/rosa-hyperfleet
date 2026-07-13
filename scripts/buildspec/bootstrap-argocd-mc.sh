@@ -18,34 +18,34 @@ if [ "${DELETE_FLAG}" == "true" ]; then
     exit 0
 fi
 
-# Read RHOBS API URL from RC terraform state.
-# The RC pipeline runs in parallel — wait for the output to appear.
+# Read RHOBS API URL from RHOBS cluster terraform state.
+# The RHOBS pipeline runs in parallel — wait for the output to appear.
 _RC_STATE_BUCKET="terraform-state-${RESOLVED_REGIONAL_ACCOUNT_ID}-${TARGET_REGION}"
 _RC_REGIONAL_ID=$(jq -r '.regional_id // "regional"' "deploy/${ENVIRONMENT}/${TARGET_REGION}/pipeline-regional-cluster-inputs/terraform.json" 2>/dev/null || echo "regional")
-_RC_STATE_KEY="regional-cluster/${_RC_REGIONAL_ID}.tfstate"
-_RC_TF_DIR="terraform/config/regional-cluster"
+_RHOBS_STATE_KEY="rhobs-cluster/${_RC_REGIONAL_ID}.tfstate"
+_RHOBS_TF_DIR="terraform/config/rhobs-cluster"
 
 use_rc_account
-(cd "$_RC_TF_DIR" && terraform init -reconfigure \
+(cd "$_RHOBS_TF_DIR" && terraform init -reconfigure \
     -backend-config="bucket=${_RC_STATE_BUCKET}" \
-    -backend-config="key=${_RC_STATE_KEY}" \
+    -backend-config="key=${_RHOBS_STATE_KEY}" \
     -backend-config="region=${TARGET_REGION}" \
     -backend-config="use_lockfile=true" >/dev/null 2>&1)
 
-_RC_TIMEOUT=1800
-_RC_START=$(date +%s)
+_RHOBS_TIMEOUT=1800
+_RHOBS_START=$(date +%s)
 export RHOBS_API_URL=""
 while [ -z "$RHOBS_API_URL" ]; do
-    RHOBS_API_URL=$(cd "$_RC_TF_DIR" && terraform output -raw rhobs_api_url 2>/dev/null || echo "")
+    RHOBS_API_URL=$(cd "$_RHOBS_TF_DIR" && terraform output -raw rhobs_api_url 2>/dev/null || echo "")
     if [ -n "$RHOBS_API_URL" ]; then
         break
     fi
-    _ELAPSED=$(( $(date +%s) - _RC_START ))
-    if [ "$_ELAPSED" -ge "$_RC_TIMEOUT" ]; then
+    _ELAPSED=$(( $(date +%s) - _RHOBS_START ))
+    if [ "$_ELAPSED" -ge "$_RHOBS_TIMEOUT" ]; then
         echo "ERROR: rhobs_api_url not available after $((_ELAPSED / 60))m" >&2
         exit 1
     fi
-    echo "Waiting for RC rhobs_api_url (${_ELAPSED}s elapsed)..."
+    echo "Waiting for RHOBS rhobs_api_url (${_ELAPSED}s elapsed)..."
     sleep 30
 done
 
