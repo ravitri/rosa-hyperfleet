@@ -79,33 +79,6 @@ else
     fi
     export TF_VAR_oidc_cloudfront_domain TF_VAR_oidc_bucket_name TF_VAR_oidc_bucket_arn TF_VAR_oidc_bucket_region
 
-    # Read rhobs_api_url from RHOBS cluster state (separate from RC).
-    # RHOBS pipeline also runs in parallel — retry until output appears.
-    _RHOBS_STATE_KEY="rhobs-cluster/${_RC_REGIONAL_ID}.tfstate"
-    _RHOBS_TF_DIR="terraform/config/rhobs-cluster"
-    (cd "$_RHOBS_TF_DIR" && terraform init -reconfigure \
-        -backend-config="bucket=${_RC_STATE_BUCKET}" \
-        -backend-config="key=${_RHOBS_STATE_KEY}" \
-        -backend-config="region=${TARGET_REGION}" \
-        -backend-config="use_lockfile=true" >/dev/null 2>&1)
-
-    _RHOBS_RETRY_COUNT=0
-    TF_VAR_rhobs_api_url=""
-    while [ $_RHOBS_RETRY_COUNT -lt $_OIDC_MAX_RETRIES ]; do
-        _RHOBS_RETRY_COUNT=$((_RHOBS_RETRY_COUNT + 1))
-        TF_VAR_rhobs_api_url=$(cd "$_RHOBS_TF_DIR" && terraform output -raw rhobs_api_url 2>/dev/null || true)
-        if [ -n "${TF_VAR_rhobs_api_url}" ]; then
-            break
-        fi
-        echo "RHOBS outputs not ready (attempt ${_RHOBS_RETRY_COUNT}/${_OIDC_MAX_RETRIES}), retrying in ${_OIDC_RETRY_DELAY}s..."
-        sleep "$_OIDC_RETRY_DELAY"
-    done
-    if [ -z "${TF_VAR_rhobs_api_url}" ]; then
-        echo "ERROR: RHOBS outputs missing after $((_OIDC_MAX_RETRIES * _OIDC_RETRY_DELAY / 60))+ minutes" >&2
-        exit 1
-    fi
-    export TF_VAR_rhobs_api_url
-
     # ZOA outputs bucket ARN
     export TF_VAR_zoa_outputs_bucket_arn=$(cd "$_RC_TF_DIR" && terraform output -raw zoa_bucket_arn 2>/dev/null || echo "")
 

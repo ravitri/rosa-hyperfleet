@@ -80,24 +80,30 @@ TERRAFORM_ACTION="apply"
 
 echo "RHOBS ${REGIONAL_ID}: terraform ${TERRAFORM_ACTION} in ${TARGET_ACCOUNT_ID}/${TARGET_REGION}"
 
-# Wait for RC terraform state before apply — RHOBS reads RC's VPC outputs
-# via terraform_remote_state, which fails if the RC hasn't finished provisioning.
+# Wait for RC terraform outputs before apply — RHOBS reads RC's VPC outputs
+# via terraform_remote_state. Checking the S3 object alone is insufficient
+# because the state file exists from terraform init, before apply writes the
+# actual resource outputs.
 if [ "${TERRAFORM_ACTION}" == "apply" ] && [ -n "${TF_VAR_rc_state_bucket}" ] && [ -n "${TF_VAR_rc_state_key}" ]; then
-    echo "Waiting for RC terraform state (bucket=${TF_VAR_rc_state_bucket}, key=${TF_VAR_rc_state_key})..."
-    for _attempt in $(seq 1 60); do
-        if aws s3api head-object \
-            --bucket "${TF_VAR_rc_state_bucket}" \
-            --key "${TF_VAR_rc_state_key}" \
-            --region "${TARGET_REGION}" \
-            >/dev/null 2>&1; then
-            echo "RC terraform state available (attempt ${_attempt})"
+    echo "Waiting for RC terraform outputs (bucket=${TF_VAR_rc_state_bucket}, key=${TF_VAR_rc_state_key})..."
+    _RC_TF_DIR="terraform/config/regional-cluster"
+    (cd "$_RC_TF_DIR" && terraform init -reconfigure \
+        -backend-config="bucket=${TF_VAR_rc_state_bucket}" \
+        -backend-config="key=${TF_VAR_rc_state_key}" \
+        -backend-config="region=${TARGET_REGION}" \
+        -backend-config="use_lockfile=true" >/dev/null 2>&1)
+
+    for _attempt in $(seq 1 90); do
+        _rc_vpc_id=$(cd "$_RC_TF_DIR" && terraform output -raw vpc_id 2>/dev/null || true)
+        if [ -n "${_rc_vpc_id}" ]; then
+            echo "RC terraform outputs ready (attempt ${_attempt}, vpc_id=${_rc_vpc_id})"
             break
         fi
-        if [ "$_attempt" -eq 60 ]; then
-            echo "ERROR: RC terraform state not available after 30 minutes" >&2
+        if [ "$_attempt" -eq 90 ]; then
+            echo "ERROR: RC terraform outputs not available after 45 minutes" >&2
             exit 1
         fi
-        echo "  Attempt ${_attempt}/60 — waiting 30s..."
+        echo "  RC outputs not ready (attempt ${_attempt}/90), retrying in 30s..."
         sleep 30
     done
 fi
