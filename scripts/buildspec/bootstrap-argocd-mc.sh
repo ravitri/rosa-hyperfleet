@@ -36,7 +36,10 @@ _RHOBS_TIMEOUT=1800
 _RHOBS_START=$(date +%s)
 export RHOBS_API_URL=""
 while [ -z "$RHOBS_API_URL" ]; do
-    RHOBS_API_URL=$(cd "$_RHOBS_TF_DIR" && terraform output -raw rhobs_api_url 2>/dev/null || echo "")
+    RHOBS_API_URL=$(cd "$_RHOBS_TF_DIR" && terraform output -raw rhobs_api_url 2>/dev/null || true)
+    # terraform output -raw writes warnings to stdout (not stderr) when no
+    # outputs exist; discard anything that isn't a URL.
+    case "$RHOBS_API_URL" in https://*) ;; *) RHOBS_API_URL="" ;; esac
     if [ -n "$RHOBS_API_URL" ]; then
         break
     fi

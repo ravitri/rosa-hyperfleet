@@ -95,6 +95,9 @@ if [ "${TERRAFORM_ACTION}" == "apply" ] && [ -n "${TF_VAR_rc_state_bucket}" ] &&
 
     for _attempt in $(seq 1 90); do
         _rc_vpc_id=$(cd "$_RC_TF_DIR" && terraform output -raw vpc_id 2>/dev/null || true)
+        # terraform output -raw writes warnings to stdout when no outputs
+        # exist; discard anything that isn't a VPC ID.
+        case "$_rc_vpc_id" in vpc-*) ;; *) _rc_vpc_id="" ;; esac
         if [ -n "${_rc_vpc_id}" ]; then
             echo "RC terraform outputs ready (attempt ${_attempt}, vpc_id=${_rc_vpc_id})"
             break
