@@ -32,7 +32,7 @@ use_rc_account
     -backend-config="region=${TARGET_REGION}" \
     -backend-config="use_lockfile=true" >/dev/null 2>&1)
 
-_RHOBS_TIMEOUT=1800
+_RHOBS_TIMEOUT=2700
 _RHOBS_START=$(date +%s)
 export RHOBS_API_URL=""
 while [ -z "$RHOBS_API_URL" ]; do
