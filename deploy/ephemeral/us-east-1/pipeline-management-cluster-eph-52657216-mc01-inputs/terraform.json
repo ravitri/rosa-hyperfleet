@@ -9,5 +9,6 @@
   "alias": "eph-52657216-mc01",
   "management_id": "eph-52657216-mc01",
   "regional_aws_account_id": "599476212575",
-  "enable_bastion": true
+  "enable_bastion": true,
+  "delete": true
 }
