@@ -272,6 +272,104 @@ read_iot_state() {
     export TF_VAR_maestro_agent_cert_file TF_VAR_maestro_agent_config_file
 }
 
+# ── Remote-state readiness ──────────────────────────────────────────────────
+
+# Check if an upstream CodePipeline stage has failed.
+# Uses a subshell with central-account credentials so the caller's assumed-role
+# context is unaffected.
+# Returns 0 if the stage status is "Failed", 1 otherwise.
+check_pipeline_stage_failed() {
+    local pipeline_name="$1"
+    local stage_name="${2:-Deploy}"
+
+    local status
+    status=$(
+        use_central_account
+        aws codepipeline get-pipeline-state \
+            --name "$pipeline_name" \
+            --query "stageStates[?stageName=='${stage_name}'].latestExecution.status" \
+            --output text 2>/dev/null
+    ) || status=""
+
+    [ "$status" = "Failed" ]
+}
+
+# Wait until every listed output is present and non-null in a terraform state.
+# Uses a single `terraform output -json` call per attempt (one S3 read) so
+# checking many outputs costs no more than checking one.
+#
+# Usage:
+#   _json=$(wait_for_remote_outputs TF_DIR TIMEOUT LABEL [--upstream-pipeline NAME] OUTPUT...)
+#   val=$(echo "$_json" | jq -r '.some_output.value')
+#
+# TF_DIR  — terraform config directory, already `terraform init`-ed against the
+#           target state backend.
+# TIMEOUT — maximum seconds to wait before failing.
+# LABEL   — human-readable source name for log messages (e.g. "RC", "RHOBS").
+# --upstream-pipeline NAME — optional; if the named CodePipeline's Deploy stage
+#           has failed, return immediately instead of waiting for the full timeout.
+# OUTPUT  — one or more output names that must be present.  String outputs must
+#           be non-empty; array outputs must have at least one element.
+#
+# On success: prints the full `terraform output -json` blob to stdout and
+#             returns 0.  Callers extract individual values with jq.
+# On timeout: prints an error to stderr listing missing outputs and returns 1.
+# Progress messages always go to stderr so stdout stays clean for the JSON.
+wait_for_remote_outputs() {
+    local tf_dir="$1" timeout="$2" label="$3"
+    shift 3
+
+    local upstream_pipeline=""
+    if [ "${1:-}" = "--upstream-pipeline" ]; then
+        upstream_pipeline="$2"
+        shift 2
+    fi
+
+    local -a required=("$@")
+
+    local start json elapsed missing
+    start=$(date +%s)
+
+    while true; do
+        if [ -n "$upstream_pipeline" ]; then
+            if check_pipeline_stage_failed "$upstream_pipeline"; then
+                echo "ERROR: upstream pipeline '$upstream_pipeline' Deploy stage failed — $label outputs will never appear" >&2
+                return 1
+            fi
+        fi
+
+        json=$(cd "$tf_dir" && terraform output -json 2>/dev/null) || json="{}"
+
+        missing=""
+        for name in "${required[@]}"; do
+            if ! echo "$json" | jq -e "
+                .\"${name}\" // null |
+                if . == null then false
+                elif .value == null then false
+                elif (.value | type) == \"string\" and (.value | length) == 0 then false
+                elif (.value | type) == \"array\" and (.value | length) == 0 then false
+                else true end
+            " >/dev/null 2>&1; then
+                missing="${missing:+${missing}, }${name}"
+            fi
+        done
+
+        if [ -z "$missing" ]; then
+            echo "$label outputs ready" >&2
+            echo "$json"
+            return 0
+        fi
+
+        elapsed=$(( $(date +%s) - start ))
+        if [ "$elapsed" -ge "$timeout" ]; then
+            echo "ERROR: $label outputs not available after $((elapsed / 60))m (missing: $missing)" >&2
+            return 1
+        fi
+        echo "  Waiting for $label outputs (${elapsed}s elapsed, missing: $missing)..." >&2
+        sleep 30
+    done
+}
+
 # ── Terraform ────────────────────────────────────────────────────────────────
 
 # Init terraform with S3 backend in the current account.

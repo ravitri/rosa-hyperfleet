@@ -81,11 +81,11 @@ TERRAFORM_ACTION="apply"
 echo "RHOBS ${REGIONAL_ID}: terraform ${TERRAFORM_ACTION} in ${TARGET_ACCOUNT_ID}/${TARGET_REGION}"
 
 # Wait for RC terraform outputs before apply — RHOBS reads RC's VPC outputs
-# via terraform_remote_state. Checking the S3 object alone is insufficient
-# because the state file exists from terraform init, before apply writes the
-# actual resource outputs.
+# via terraform_remote_state. All five outputs must be present before we
+# proceed; checking only vpc_id is insufficient because subnets and security
+# groups are created after the VPC resource itself.
 if [ "${TERRAFORM_ACTION}" == "apply" ] && [ -n "${TF_VAR_rc_state_bucket}" ] && [ -n "${TF_VAR_rc_state_key}" ]; then
-    echo "Waiting for RC terraform outputs (bucket=${TF_VAR_rc_state_bucket}, key=${TF_VAR_rc_state_key})..."
+    echo "Waiting for RC outputs (bucket=${TF_VAR_rc_state_bucket}, key=${TF_VAR_rc_state_key})..."
     _RC_TF_DIR="terraform/config/regional-cluster"
     (cd "$_RC_TF_DIR" && terraform init -reconfigure \
         -backend-config="bucket=${TF_VAR_rc_state_bucket}" \
@@ -93,22 +93,13 @@ if [ "${TERRAFORM_ACTION}" == "apply" ] && [ -n "${TF_VAR_rc_state_bucket}" ] &&
         -backend-config="region=${TARGET_REGION}" \
         -backend-config="use_lockfile=true" >/dev/null 2>&1)
 
-    for _attempt in $(seq 1 90); do
-        _rc_vpc_id=$(cd "$_RC_TF_DIR" && terraform output -raw vpc_id 2>/dev/null || true)
-        # terraform output -raw writes warnings to stdout when no outputs
-        # exist; discard anything that isn't a VPC ID.
-        case "$_rc_vpc_id" in vpc-*) ;; *) _rc_vpc_id="" ;; esac
-        if [ -n "${_rc_vpc_id}" ]; then
-            echo "RC terraform outputs ready (attempt ${_attempt}, vpc_id=${_rc_vpc_id})"
-            break
-        fi
-        if [ "$_attempt" -eq 90 ]; then
-            echo "ERROR: RC terraform outputs not available after 45 minutes" >&2
-            exit 1
-        fi
-        echo "  RC outputs not ready (attempt ${_attempt}/90), retrying in 30s..."
-        sleep 30
-    done
+    _RC_REGIONAL_ID=$(echo "${TF_VAR_rc_state_key}" | sed 's|regional-cluster/\(.*\)\.tfstate|\1|')
+
+    wait_for_remote_outputs "$_RC_TF_DIR" 2700 "RC" \
+        --upstream-pipeline "${_RC_REGIONAL_ID}-pipe" \
+        vpc_id vpc_cidr private_subnets \
+        cluster_security_group_id vpc_endpoints_security_group_id \
+        >/dev/null || exit 1
 fi
 
 cd terraform/config/rhobs-cluster

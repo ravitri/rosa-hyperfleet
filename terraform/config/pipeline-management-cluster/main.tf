@@ -197,7 +197,9 @@ resource "aws_iam_role_policy" "codebuild_policy" {
           "logs:UntagResource",
           "logs:PutRetentionPolicy",
           "logs:TagLogGroup",
-          "logs:UntagLogGroup"
+          "logs:UntagLogGroup",
+          # CodePipeline - Fast-fail when upstream pipeline (RC/RHOBS) has failed
+          "codepipeline:GetPipelineState"
         ]
         Resource = "*"
       }

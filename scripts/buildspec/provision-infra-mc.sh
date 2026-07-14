@@ -36,8 +36,8 @@ else
     export DNS_ZONE_OPERATOR_ROLE_ARN="arn:aws:iam::${RESOLVED_REGIONAL_ACCOUNT_ID}:role/${_RC_REGIONAL_ID}-dns-zone-operator"
     export OIDC_WRITER_ROLE_ARN="arn:aws:iam::${RESOLVED_REGIONAL_ACCOUNT_ID}:role/${_RC_REGIONAL_ID}-oidc-writer"
 
-    # Read OIDC outputs from RC terraform state. RC and MC pipelines run in
-    # parallel — retry until the outputs appear or we timeout (45 min).
+    # Read RC outputs (OIDC + ZOA). RC and MC pipelines run in parallel — wait
+    # for ALL required outputs before proceeding (up to 45 min).
     _RC_STATE_BUCKET="terraform-state-${RESOLVED_REGIONAL_ACCOUNT_ID}-${TARGET_REGION}"
     _RC_STATE_KEY="regional-cluster/${_RC_REGIONAL_ID}.tfstate"
     _RC_TF_DIR="terraform/config/regional-cluster"
@@ -47,48 +47,17 @@ else
         -backend-config="region=${TARGET_REGION}" \
         -backend-config="use_lockfile=true" >/dev/null 2>&1)
 
-    # RC and MC pipelines run in parallel — retry until all outputs appear (up to 45 min)
-    _OIDC_MAX_RETRIES=90
-    _OIDC_RETRY_DELAY=30
-    _OIDC_RETRY_COUNT=0
-    TF_VAR_oidc_cloudfront_domain=""
-    TF_VAR_oidc_bucket_name=""
-    TF_VAR_oidc_bucket_arn=""
-    TF_VAR_oidc_bucket_region=""
-    while [ $_OIDC_RETRY_COUNT -lt $_OIDC_MAX_RETRIES ]; do
-        _OIDC_RETRY_COUNT=$((_OIDC_RETRY_COUNT + 1))
-        TF_VAR_oidc_cloudfront_domain=$(cd "$_RC_TF_DIR" && terraform output -raw oidc_cloudfront_domain 2>/dev/null || true)
-        TF_VAR_oidc_bucket_name=$(cd "$_RC_TF_DIR" && terraform output -raw oidc_bucket_name 2>/dev/null || true)
-        TF_VAR_oidc_bucket_arn=$(cd "$_RC_TF_DIR" && terraform output -raw oidc_bucket_arn 2>/dev/null || true)
-        TF_VAR_oidc_bucket_region=$(cd "$_RC_TF_DIR" && terraform output -raw oidc_bucket_region 2>/dev/null || true)
-        # terraform output -raw writes warnings to stdout when no outputs
-        # exist; discard values that contain terraform warning text.
-        for _var in TF_VAR_oidc_cloudfront_domain TF_VAR_oidc_bucket_name TF_VAR_oidc_bucket_arn TF_VAR_oidc_bucket_region; do
-            case "${!_var}" in *Warning*|*"No outputs"*) eval "$_var=''" ;; esac
-        done
-        if [ -n "${TF_VAR_oidc_cloudfront_domain}" ] && \
-           [ -n "${TF_VAR_oidc_bucket_name}" ] && \
-           [ -n "${TF_VAR_oidc_bucket_arn}" ] && \
-           [ -n "${TF_VAR_oidc_bucket_region}" ]; then
-            break
-        fi
-        echo "RC outputs not ready (attempt ${_OIDC_RETRY_COUNT}/${_OIDC_MAX_RETRIES}), retrying in ${_OIDC_RETRY_DELAY}s..."
-        sleep "$_OIDC_RETRY_DELAY"
-    done
-    if [ -z "${TF_VAR_oidc_cloudfront_domain}" ] || \
-       [ -z "${TF_VAR_oidc_bucket_name}" ] || \
-       [ -z "${TF_VAR_oidc_bucket_arn}" ] || \
-       [ -z "${TF_VAR_oidc_bucket_region}" ]; then
-        echo "ERROR: RC outputs missing after $((_OIDC_MAX_RETRIES * _OIDC_RETRY_DELAY / 60))+ minutes" >&2
-        exit 1
-    fi
-    export TF_VAR_oidc_cloudfront_domain TF_VAR_oidc_bucket_name TF_VAR_oidc_bucket_arn TF_VAR_oidc_bucket_region
+    _RC_JSON=$(wait_for_remote_outputs "$_RC_TF_DIR" 2700 "RC" \
+        --upstream-pipeline "${_RC_REGIONAL_ID}-pipe" \
+        oidc_cloudfront_domain oidc_bucket_name oidc_bucket_arn \
+        oidc_bucket_region zoa_bucket_arn zoa_kms_key_arn) || exit 1
 
-    # ZOA outputs bucket ARN
-    export TF_VAR_zoa_outputs_bucket_arn=$(cd "$_RC_TF_DIR" && terraform output -raw zoa_bucket_arn 2>/dev/null || echo "")
-
-    # ZOA KMS key ARN (optional — for S3 SSE-KMS cross-account access)
-    export TF_VAR_zoa_kms_key_arn=$(cd "$_RC_TF_DIR" && terraform output -raw zoa_kms_key_arn 2>/dev/null || echo "")
+    export TF_VAR_oidc_cloudfront_domain=$(echo "$_RC_JSON" | jq -r '.oidc_cloudfront_domain.value')
+    export TF_VAR_oidc_bucket_name=$(echo "$_RC_JSON" | jq -r '.oidc_bucket_name.value')
+    export TF_VAR_oidc_bucket_arn=$(echo "$_RC_JSON" | jq -r '.oidc_bucket_arn.value')
+    export TF_VAR_oidc_bucket_region=$(echo "$_RC_JSON" | jq -r '.oidc_bucket_region.value')
+    export TF_VAR_zoa_outputs_bucket_arn=$(echo "$_RC_JSON" | jq -r '.zoa_bucket_arn.value')
+    export TF_VAR_zoa_kms_key_arn=$(echo "$_RC_JSON" | jq -r '.zoa_kms_key_arn.value')
 fi
 
 # ── Phase 2: Apply/Destroy MC infrastructure ─────────────────────────────────

@@ -36,25 +36,10 @@ use_rc_account
     -backend-config="region=${TARGET_REGION}" \
     -backend-config="use_lockfile=true" >/dev/null 2>&1)
 
-_RHOBS_TIMEOUT=2700
-_RHOBS_START=$(date +%s)
-export RHOBS_API_URL=""
-while [ -z "$RHOBS_API_URL" ]; do
-    RHOBS_API_URL=$(cd "$_RHOBS_TF_DIR" && terraform output -raw rhobs_api_url 2>/dev/null || true)
-    # terraform output -raw writes warnings to stdout (not stderr) when no
-    # outputs exist; discard anything that isn't a URL.
-    case "$RHOBS_API_URL" in https://*) ;; *) RHOBS_API_URL="" ;; esac
-    if [ -n "$RHOBS_API_URL" ]; then
-        break
-    fi
-    _ELAPSED=$(( $(date +%s) - _RHOBS_START ))
-    if [ "$_ELAPSED" -ge "$_RHOBS_TIMEOUT" ]; then
-        echo "ERROR: rhobs_api_url not available after $((_ELAPSED / 60))m" >&2
-        exit 1
-    fi
-    echo "Waiting for RHOBS rhobs_api_url (${_ELAPSED}s elapsed)..."
-    sleep 30
-done
+_RHOBS_JSON=$(wait_for_remote_outputs "$_RHOBS_TF_DIR" 2700 "RHOBS" \
+    --upstream-pipeline "${_RHOBS_REGIONAL_ID}-pipe" \
+    rhobs_api_url) || exit 1
+export RHOBS_API_URL=$(echo "$_RHOBS_JSON" | jq -r '.rhobs_api_url.value')
 
 export DNS_ZONE_OPERATOR_ROLE_ARN="arn:aws:iam::${RESOLVED_REGIONAL_ACCOUNT_ID}:role/${_RC_REGIONAL_ID}-dns-zone-operator"
 
