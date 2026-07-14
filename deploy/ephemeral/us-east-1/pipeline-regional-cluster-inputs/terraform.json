@@ -17,5 +17,6 @@
   "regional_id": "eph-edb130d2-regional",
   "eph_prefix": "eph-edb130d2",
   "iot_log_level": "WARN",
-  "management_clusters_info": [{"account_id": "855246887846", "id": "eph-edb130d2-mc01"}]
+  "management_clusters_info": [{"account_id": "855246887846", "id": "eph-edb130d2-mc01"}],
+  "delete": true
 }
