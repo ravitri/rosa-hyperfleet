@@ -22,7 +22,11 @@ fi
 # The RHOBS pipeline runs in parallel — wait for the output to appear.
 _RC_STATE_BUCKET="terraform-state-${RESOLVED_REGIONAL_ACCOUNT_ID}-${TARGET_REGION}"
 _RC_REGIONAL_ID=$(jq -r '.regional_id // "regional"' "deploy/${ENVIRONMENT}/${TARGET_REGION}/pipeline-regional-cluster-inputs/terraform.json" 2>/dev/null || echo "regional")
-_RHOBS_STATE_KEY="rhobs-cluster/${_RC_REGIONAL_ID}.tfstate"
+# RHOBS state key uses the provisioner config's regional_id (e.g. "rhobs" or
+# "eph-xxx-rhobs"), NOT the terraform config's regional_id which refers to
+# the RC's regional_id used for VPC naming.
+_RHOBS_REGIONAL_ID=$(jq -r '.regional_id // "rhobs"' "deploy/${ENVIRONMENT}/${TARGET_REGION}/pipeline-provisioner-inputs/rhobs-cluster.json" 2>/dev/null || echo "rhobs")
+_RHOBS_STATE_KEY="rhobs-cluster/${_RHOBS_REGIONAL_ID}.tfstate"
 _RHOBS_TF_DIR="terraform/config/rhobs-cluster"
 
 use_rc_account
