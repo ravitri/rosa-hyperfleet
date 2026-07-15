@@ -1,19 +1,3 @@
-# Ephemeral environment template
-#
-# This is not a living environment — it is a template for short-lived
-# environments used by CI e2e tests and developer workflows. A UUID
-# (eph_prefix) is injected at render time to isolate each instance within
-# shared CI or dev AWS accounts.
-#
-# DNS account pool selection:
-#   Ephemeral environments run in two account pools with separate DNS:
-#     - dev accounts  → dev0.rosa.devshift.net  (local developer environments)
-#     - CI accounts   → ci00.rosa.devshift.net  (CI e2e test environments)
-#   The `ci` template variable (true when both EPH_PREFIX and BUILD_ID are
-#   set) selects the correct pool. BUILD_ID is set by CI pipelines; when
-#   rendering locally or during CI lint checks (no EPH_PREFIX), the default
-#   dev0 domain is used so rendered files match what is committed.
-
 deployment_name: "{{ aws_region }}{% if eph_prefix %}-{{ eph_prefix }}{% endif %}"
 
 dns:
@@ -21,10 +5,8 @@ dns:
 
 regional_cluster:
   enable_bastion: true
+  enable_rate_limit_redis: true
   node_instance_families: ["m8i-flex", "m7i-flex"]
-
-rhobs_cluster:
-  enable_bastion: true
 
 management_cluster_defaults:
   enable_bastion: true
@@ -33,3 +15,9 @@ management_cluster_defaults:
 observability:
   pagerduty:
     enabled: false
+
+platformApi:
+  app:
+    image:
+      repository: quay.io/travi/rosa-hyperfleet-api
+      tag: "ratelimit"

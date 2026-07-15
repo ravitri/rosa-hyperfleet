@@ -6,12 +6,12 @@
   "environment": "integration",
   "account_id": "ssm:///infra/integration/us-east-1/account_id",
   "region": "us-east-1",
-  "regional_id": "regional",
-  "eph_prefix": "",
+  "regional_id": "eph-0b77d452-regional",
+  "eph_prefix": "eph-0b77d452",
   "enable_pagerduty": true,
   "pagerduty_escalation_policy_id": "P5KE444",
   "enable_sns_alerting": true,
   "enable_bastion": true,
   "rc_state_bucket": "terraform-state-ssm:///infra/integration/us-east-1/account_id-us-east-1",
-  "rc_state_key": "regional-cluster/regional.tfstate"
+  "rc_state_key": "regional-cluster/eph-0b77d452-regional.tfstate"
 }
