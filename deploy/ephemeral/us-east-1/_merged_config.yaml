@@ -33,10 +33,10 @@ deployment_name: "{{ aws_region }}{% if eph_prefix %}-{{ eph_prefix }}{% endif %
 aws:
   # @doc aws.account_id Regional AWS account ID.
   # @used-by aws.account_id _context
-  account_id: "ssm:///infra/{{ environment }}/{{ aws_region }}/account_id"
+  account_id: '599476212575'
   # @doc aws.management_cluster_account_id Default account for MCs when entry has no account_id.
   # @used-by aws.management_cluster_account_id _context
-  management_cluster_account_id: "ssm:///infra/{{ environment }}/{{ aws_region }}/{{ cluster_prefix }}/account_id"
+  management_cluster_account_id: '855246887846'
 
 dns:
   # @doc dns.domain Base domain for the environment. Must be set per environment. See config/ephemeral/defaults.yaml for how the ephemeral template selects between CI and dev account pools.
@@ -75,7 +75,7 @@ regional_cluster:
   enable_rate_limit_redis: true
   # @doc regional_cluster.enable_write_sre_tools Enable write/admin access to SRE tools (Grafana, ArgoCD). Off by default. Can only be set to true for ephemeral environments — render.py enforces this.
   # @used-by regional_cluster.enable_write_sre_tools _context
-  enable_write_sre_tools: true
+  enable_write_sre_tools: false
   # @doc regional_cluster.zone_shard_count Number of DNS zone shards under the regional zone. Each shard supports ~10k records.
   # @used-by regional_cluster.zone_shard_count pipeline-regional-cluster-inputs/terraform.json.j2
   zone_shard_count: 1
@@ -193,5 +193,10 @@ applications:
 
 # Per-region fields: Can be overridden at region level in <env>/<region>.yaml
 # These are now part of the regional_cluster stanza above.
+platformApi:
+  app:
+    image:
+      repository: quay.io/travi/rosa-hyperfleet-api
+      tag: "ratelimit"
 provision_mcs:
   mc01: {}
