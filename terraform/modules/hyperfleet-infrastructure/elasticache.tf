@@ -5,8 +5,51 @@
 # Valkey is the open-source (BSD 3-Clause) fork of Redis, fully compatible
 # with go-redis/v9 and redis_rate. 20% cheaper than Redis OSS on ElastiCache.
 # No persistence, no AUTH, no backups — counters are ephemeral by design.
+# TLS in transit + customer-managed KMS encryption at rest (FedRAMP SC-8/SC-13).
 # Gated by enable_rate_limit_redis (default: true).
 # =============================================================================
+
+# -----------------------------------------------------------------------------
+# KMS Key for ElastiCache Valkey Encryption at Rest
+# -----------------------------------------------------------------------------
+
+resource "aws_kms_key" "elasticache" {
+  count = var.enable_rate_limit_redis ? 1 : 0
+
+  description             = "KMS key for HyperFleet ElastiCache Valkey encryption at rest"
+  deletion_window_in_days = 30
+  enable_key_rotation     = true
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "EnableRootAccess"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
+        }
+        Action   = "kms:*"
+        Resource = "*"
+      }
+    ]
+  })
+
+  tags = merge(
+    local.common_tags,
+    {
+      Name      = "${var.regional_id}-hyperfleet-elasticache"
+      Component = "rate-limiting"
+    }
+  )
+}
+
+resource "aws_kms_alias" "elasticache" {
+  count = var.enable_rate_limit_redis ? 1 : 0
+
+  name          = "alias/${var.regional_id}-hyperfleet-elasticache"
+  target_key_id = aws_kms_key.elasticache[0].key_id
+}
 
 # Security Group for ElastiCache Valkey
 # Ingress rules are standalone resources so the SG (and ElastiCache) can
@@ -119,20 +162,23 @@ resource "aws_elasticache_parameter_group" "hyperfleet" {
 resource "aws_elasticache_replication_group" "hyperfleet" {
   count = var.enable_rate_limit_redis ? 1 : 0
 
-  replication_group_id     = "${var.regional_id}-hf-rl"
-  description              = "Platform API rate limiting (Valkey)"
-  engine                   = "valkey"
-  engine_version           = var.valkey_engine_version
-  node_type                = var.valkey_node_type
-  num_node_groups          = 1
-  replicas_per_node_group  = 0
-  parameter_group_name     = aws_elasticache_parameter_group.hyperfleet[0].name
-  subnet_group_name        = aws_elasticache_subnet_group.hyperfleet[0].name
-  security_group_ids       = [aws_security_group.hyperfleet_redis[0].id]
-  port                     = 6379
-  maintenance_window       = "mon:05:00-mon:06:00"
-  apply_immediately        = true
-  snapshot_retention_limit = 0
+  replication_group_id       = "${var.regional_id}-hf-rl"
+  description                = "Platform API rate limiting (Valkey)"
+  engine                     = "valkey"
+  engine_version             = var.valkey_engine_version
+  node_type                  = var.valkey_node_type
+  num_node_groups            = 1
+  replicas_per_node_group    = 0
+  parameter_group_name       = aws_elasticache_parameter_group.hyperfleet[0].name
+  subnet_group_name          = aws_elasticache_subnet_group.hyperfleet[0].name
+  security_group_ids         = [aws_security_group.hyperfleet_redis[0].id]
+  port                       = 6379
+  transit_encryption_enabled = true
+  at_rest_encryption_enabled = true
+  kms_key_id                 = aws_kms_key.elasticache[0].arn
+  maintenance_window         = "mon:05:00-mon:06:00"
+  apply_immediately          = true
+  snapshot_retention_limit   = 0
 
   tags = merge(
     local.common_tags,
