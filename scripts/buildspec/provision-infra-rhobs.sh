@@ -69,6 +69,7 @@ fi
 export TF_VAR_regional_id=$(jq -r '.regional_id' "$DEPLOY_CONFIG_FILE")
 export TF_VAR_environment=$(jq -r '.environment' "$DEPLOY_CONFIG_FILE")
 export TF_VAR_eph_prefix=$(jq -r '.eph_prefix // ""' "$DEPLOY_CONFIG_FILE")
+export TF_VAR_enable_bastion="${ENABLE_BASTION}"
 export ENVIRONMENT="${ENVIRONMENT:-staging}"
 
 # Determine terraform action

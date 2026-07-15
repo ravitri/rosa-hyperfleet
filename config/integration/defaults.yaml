@@ -8,6 +8,9 @@ regional_cluster:
   enable_api_custom_domain: true
   node_instance_families: ["m8i", "m7i"]
 
+rhobs_cluster:
+  enable_bastion: true
+
 management_cluster_defaults:
   enable_bastion: true
   node_instance_families: ["m8i", "m7i"]

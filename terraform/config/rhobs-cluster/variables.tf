@@ -172,3 +172,13 @@ variable "eph_prefix" {
   type        = string
   default     = ""
 }
+
+# =============================================================================
+# Bastion Configuration
+# =============================================================================
+
+variable "enable_bastion" {
+  description = "Enable ECS Fargate bastion for break-glass/development access to the cluster"
+  type        = bool
+  default     = false
+}

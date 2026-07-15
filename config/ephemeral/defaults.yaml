@@ -23,6 +23,9 @@ regional_cluster:
   enable_bastion: true
   node_instance_families: ["m8i-flex", "m7i-flex"]
 
+rhobs_cluster:
+  enable_bastion: true
+
 management_cluster_defaults:
   enable_bastion: true
   node_instance_families: ["m8i-flex", "m7i-flex"]

@@ -179,6 +179,23 @@ module "ecs_bootstrap" {
 }
 
 # =============================================================================
+# Bastion Module (Optional) - depends on VPC + EKS
+# =============================================================================
+
+module "bastion" {
+  count  = var.enable_bastion ? 1 : 0
+  source = "../../modules/bastion"
+
+  cluster_id                = "${var.regional_id}-rhobs"
+  cluster_name              = module.rhobs_cluster.cluster_name
+  cluster_endpoint          = module.rhobs_cluster.cluster_endpoint
+  cluster_security_group_id = local.rc_cluster_security_group_id
+  vpc_id                    = local.rc_vpc_id
+  private_subnet_ids        = local.rc_private_subnet_ids
+  container_image           = var.container_image
+}
+
+# =============================================================================
 # RHOBS API Gateway (Observability)
 #
 # Dedicated REST API + ALB for RHOBS traffic, fully isolated from the Platform

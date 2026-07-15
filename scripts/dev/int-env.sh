@@ -22,6 +22,7 @@ CI_IMAGE="rosa-regional-ci"
 INT_REGION="us-east-1"
 RC_CLUSTER="regional"
 MC_CLUSTER="mc01"
+RHOBS_CLUSTER="rhobs"
 
 INT_API_URL="https://api.us-east-1.int0.rosa.devshift.net"
 
@@ -37,8 +38,8 @@ usage() {
     echo ""
     echo "Commands:"
     echo "  shell           Interactive shell for Platform API access"
-    echo "  bastion         Connect to RC/MC bastion"
-    echo "  port-forward    Forward ports through RC/MC bastion"
+    echo "  bastion         Connect to RC/MC/RHOBS bastion"
+    echo "  port-forward    Forward ports through RC/MC/RHOBS bastion"
     echo "  e2e             Run e2e tests"
     echo "  collect-logs    Collect kubernetes logs from RC/MC"
 }
@@ -46,10 +47,10 @@ usage() {
 usage_bastion() {
     echo "Usage: $0 bastion --cluster-type [value]"
     echo ""
-    echo "Connect to RC/MC bastion in the integration environment"
+    echo "Connect to RC/MC/RHOBS bastion in the integration environment"
     echo ""
     echo "Flags:"
-    echo "  --cluster-type  Cluster type: \"regional\" or \"management\""
+    echo "  --cluster-type  Cluster type: \"regional\", \"management\", or \"rhobs\""
 }
 
 usage_port_forward() {
@@ -60,13 +61,14 @@ usage_port_forward() {
     echo "Flags:"
     echo "  --all              Automatically open all port forwards"
     echo "  --service <name>   Forward a specific service (maestro, argocd, prometheus)"
-    echo "  --cluster-type     Cluster type: \"regional\" or \"management\""
+    echo "  --cluster-type     Cluster type: \"regional\", \"management\", or \"rhobs\""
 }
 
 cluster_id_for() {
     case "$1" in
         regional)   echo "$RC_CLUSTER" ;;
         management) echo "$MC_CLUSTER" ;;
+        rhobs)      echo "$RHOBS_CLUSTER" ;;
         *)          die "Unknown cluster type: $1" ;;
     esac
 }
@@ -75,6 +77,7 @@ profile_for() {
     case "$1" in
         regional)   echo "rrp-int-rc" ;;
         management) echo "rrp-int-mc" ;;
+        rhobs)      echo "rrp-int-rc" ;;
         *)          die "Unknown cluster type: $1" ;;
     esac
 }
@@ -199,7 +202,7 @@ cmd_bastion() {
     done
 
     case "$cluster_type" in
-      regional|management) ;;
+      regional|management|rhobs) ;;
       *) echo "Error: invalid cluster type '${cluster_type:-}'"; echo ""; usage_bastion; exit 1 ;;
     esac
 
@@ -247,18 +250,21 @@ cmd_port_forward() {
     done
 
     case "$cluster_type" in
-      regional|management) ;;
+      regional|management|rhobs) ;;
       *) echo "Error: invalid cluster type '${cluster_type:-}'"; echo ""; usage_port_forward; exit 1 ;;
     esac
 
     local maestro="maestro   - Maestro HTTP + gRPC"
     local argocd="argocd    - ArgoCD server HTTPS"
     local prometheus="prometheus  - Prometheus Monitoring Dashboard"
+    local thanos="thanos    - Thanos Query + Ruler (aggregated metrics)"
     local loki="loki      - Loki Query Frontend (platform logs)"
+    local alertmanager="alertmanager - AlertManager Web UI"
     local grafana="grafana   - Grafana Dashboard"
 
     local regional_svc_list=("$maestro" "$argocd" "$prometheus" "$loki" "$grafana")
     local management_svc_list=("$argocd" "$prometheus")
+    local rhobs_svc_list=("$argocd" "$prometheus" "$thanos" "$loki" "$alertmanager" "$grafana")
 
     local services
 
@@ -266,17 +272,19 @@ cmd_port_forward() {
         case "$cluster_type" in
             regional )      services=$(printf '%s\n' "${regional_svc_list[@]}") ;;
             management )    services=$(printf '%s\n' "${management_svc_list[@]}") ;;
+            rhobs )         services=$(printf '%s\n' "${rhobs_svc_list[@]}") ;;
         esac
     elif [[ -n "$SERVICE" ]]; then
         services="$SERVICE"
     elif command -v fzf >/dev/null 2>&1; then
-        if [ "$cluster_type" = "regional" ]; then
-            services=$(printf '%s\n' "${regional_svc_list[@]}" \
-                | fzf --multi --height=10 --layout=reverse --header="Select service (${cluster_type}):" --no-info)
-        else
-            services=$(printf '%s\n' "${management_svc_list[@]}" \
-                | fzf --multi --height=10 --layout=reverse --header="Select service (${cluster_type}):" --no-info)
-        fi
+        local svc_list
+        case "$cluster_type" in
+            regional )      svc_list=("${regional_svc_list[@]}") ;;
+            management )    svc_list=("${management_svc_list[@]}") ;;
+            rhobs )         svc_list=("${rhobs_svc_list[@]}") ;;
+        esac
+        services=$(printf '%s\n' "${svc_list[@]}" \
+            | fzf --multi --height=10 --layout=reverse --header="Select service (${cluster_type}):" --no-info)
         [[ -n "$services" ]] || { echo "Aborted."; exit 1; }
     else
         die "Use --all, --service <name>, or install fzf for interactive selection."
@@ -308,9 +316,20 @@ cmd_port_forward() {
             "Prometheus 9090 9090 monitoring-prometheus monitoring 9090"
             )
             ;;
+        thanos)
+            forwards+=(
+            "Thanos-Query 10902 10902 thanos-query-frontend-thanos-query thanos 9090"
+            "Thanos-Ruler 10903 10903 thanos-ruler-thanos-ruler thanos 9090"
+            )
+            ;;
         loki)
             forwards+=(
             "Loki-Query 13100 13100 loki-query-frontend loki 3100"
+            )
+            ;;
+        alertmanager)
+            forwards+=(
+            "AlertManager 9093 9093 monitoring-alertmanager monitoring 9093"
             )
             ;;
         grafana)

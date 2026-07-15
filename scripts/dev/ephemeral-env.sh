@@ -40,8 +40,8 @@ usage() {
     echo "  swap-branch     Swap an ephemeral environment to a different branch"
     echo "  list            List ephemeral environments"
     echo "  shell           Interactive shell for Platform API access"
-    echo "  bastion         Connect to RC/MC bastion in an ephemeral env"
-    echo "  port-forward    Forward ports through RC/MC bastion in an ephemeral env"
+    echo "  bastion         Connect to RC/MC/RHOBS bastion in an ephemeral env"
+    echo "  port-forward    Forward ports through RC/MC/RHOBS bastion in an ephemeral env"
     echo "  e2e             Run e2e tests against an ephemeral env"
     echo "  collect-logs    Collect kubernetes logs from RC/MC in an ephemeral env"
 }
@@ -49,10 +49,10 @@ usage() {
 usage_bastion_interactive() {
     echo "Usage: $0 bastion --cluster-type [value]"
     echo ""
-    echo "Connect to RC/MC bastion in an ephemeral environment"
+    echo "Connect to RC/MC/RHOBS bastion in an ephemeral environment"
     echo ""
     echo "Flags:"
-    echo "  --cluster-type  Defines which cluster type to connect to. Accepted values are \"regional\" or \"management\""
+    echo "  --cluster-type  Defines which cluster type to connect to. Accepted values are \"regional\", \"management\", or \"rhobs\""
 }
 
 usage_port_forward() {
@@ -62,7 +62,7 @@ usage_port_forward() {
     echo ""
     echo "Flags:"
     echo "  --all           Automatically open all port forwards to the various services"
-    echo "  --cluster-type  Defines which cluster type to connect to. Accepted values are \"regional\" or \"management\""
+    echo "  --cluster-type  Defines which cluster type to connect to. Accepted values are \"regional\", \"management\", or \"rhobs\""
 }
 
 # Extract a KEY=VALUE field from an .ephemeral-envs line.
@@ -279,6 +279,7 @@ profile_for() {
     case "$1" in
         regional)   echo "rrp-ephemeral-rc" ;;
         management) echo "rrp-ephemeral-mc" ;;
+        rhobs)      echo "rrp-ephemeral-rc" ;;
         *)          die "Unknown cluster type: $1" ;;
     esac
 }
@@ -302,11 +303,11 @@ bastion_setup() {
     local eph_prefix="eph-${BUILD_ID}"
 
     # Derive cluster ID and ECS resource names from eph_prefix
-    if [[ "$cluster_type" == "regional" ]]; then
-        cluster_id="${eph_prefix}-regional"
-    else
-        cluster_id="${eph_prefix}-mc01"
-    fi
+    case "$cluster_type" in
+        regional)   cluster_id="${eph_prefix}-regional" ;;
+        management) cluster_id="${eph_prefix}-mc01" ;;
+        rhobs)      cluster_id="${eph_prefix}-rhobs" ;;
+    esac
     export ecs_cluster="${cluster_id}-bastion"
 
     setup_aws_config
@@ -696,7 +697,7 @@ cmd_bastion_interactive() {
     done
 
     case "$cluster_type" in
-      regional|management) ;;
+      regional|management|rhobs) ;;
       *) echo "Error: invalid cluster type '$cluster_type'"; echo ""; usage_bastion_interactive; exit 1 ;;
     esac
 
@@ -744,14 +745,14 @@ cmd_bastion_port_forward() {
 
     # --- Validations ------------------------
     case "$cluster_type" in
-      regional|management) ;;
+      regional|management|rhobs) ;;
       *) echo "Error: invalid cluster type '$cluster_type'"; echo ""; usage_port_forward; exit 1 ;;
     esac
 
     local maestro="maestro       - Maestro HTTP + gRPC"
     local argocd="argocd        - ArgoCD server HTTPS"
     local prometheus="prometheus    - Prometheus Monitoring Dashboard"
-    local thanos="thanos        - Thanos Query + Ruler (aggregated RC+MC metrics and alerting)"
+    local thanos="thanos        - Thanos Query + Ruler (aggregated metrics and alerting)"
     local loki="loki          - Loki Query Frontend (platform logs)"
     local alertmanager="alertmanager  - AlertManager Web UI"
     local grafana="grafana       - Grafana Dashboard"
@@ -760,6 +761,7 @@ cmd_bastion_port_forward() {
     # custom services are added only for interactive
     local regional_svc_list=("$maestro" "$argocd" "$prometheus" "$thanos" "$loki" "$alertmanager" "$grafana")
     local management_svc_list=("$argocd" "$prometheus")
+    local rhobs_svc_list=("$argocd" "$prometheus" "$thanos" "$loki" "$alertmanager" "$grafana")
 
     local services
 
@@ -768,14 +770,17 @@ cmd_bastion_port_forward() {
         case "$cluster_type" in
             regional )      services=$(printf '%s\n' "${regional_svc_list[@]}") ;;
             management )    services=$(printf '%s\n' "${management_svc_list[@]}") ;;
+            rhobs )         services=$(printf '%s\n' "${rhobs_svc_list[@]}") ;;
         esac
     else
         # otherwise, prompt the user
-        if [ "$cluster_type" = "regional" ]; then
-            services=$(fzf_pick "Select service (${cluster_type}):" "${regional_svc_list[@]}" "$custom")
-        else
-            services=$(fzf_pick "Select service (${cluster_type}):" "${management_svc_list[@]}" "$custom")
-        fi
+        local svc_list
+        case "$cluster_type" in
+            regional )      svc_list=("${regional_svc_list[@]}") ;;
+            management )    svc_list=("${management_svc_list[@]}") ;;
+            rhobs )         svc_list=("${rhobs_svc_list[@]}") ;;
+        esac
+        services=$(fzf_pick "Select service (${cluster_type}):" "${svc_list[@]}" "$custom")
     fi
     services=$(awk '{print $1}' <<< "$services" | tr '\n' ' ')
 

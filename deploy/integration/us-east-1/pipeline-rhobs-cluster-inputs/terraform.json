@@ -11,6 +11,7 @@
   "enable_pagerduty": true,
   "pagerduty_escalation_policy_id": "P5KE444",
   "enable_sns_alerting": true,
+  "enable_bastion": true,
   "rc_state_bucket": "terraform-state-ssm:///infra/integration/us-east-1/account_id-us-east-1",
   "rc_state_key": "regional-cluster/regional.tfstate"
 }

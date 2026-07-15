@@ -11,6 +11,7 @@
   "enable_pagerduty": {{ observability.pagerduty.enabled | default(false) | tojson }},
   "pagerduty_escalation_policy_id": {{ observability.pagerduty.escalation_policy_id | default('') | tojson }},
   "enable_sns_alerting": {{ observability.sns_alerting.enabled | default(false) | tojson }},
+  "enable_bastion": {{ rhobs_cluster.enable_bastion | default(false) | tojson }},
   "rc_state_bucket": "terraform-state-{{ account_id }}-{{ aws_region }}",
   "rc_state_key": "regional-cluster/{% if eph_prefix %}{{ eph_prefix }}-regional{% else %}regional{% endif %}.tfstate"{% if delete %},
   "delete": true{% endif %}
