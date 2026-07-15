@@ -119,6 +119,27 @@ Single step matching job name — fetch `<artifacts-url>/<job-name>/build-log.tx
 
 When e2e tests fail, the CI job collects pod logs from the RC and MC clusters and uploads them to S3. These logs are **not** included in the public Prow artifacts (they may contain secrets), but the S3 URIs are printed in the e2e build log.
 
+**Always analyze Prow artifacts first (Step 5), then selectively fetch S3 logs based on what the Prow analysis reveals.** Use the Prow build logs, error messages, and failure context to determine the failure scope before downloading anything from S3:
+
+- **RC-only failure** (e.g., provision failure, API error, ArgoCD sync issue on RC, maestro-server error): fetch **only RC logs** from S3.
+- **MC failure or RC↔MC interaction** (e.g., maestro-agent errors, HyperShift issues, hosted cluster failures, connectivity between RC and MC): fetch **both RC and MC logs** from S3 — MC failures often have an RC-side root cause.
+- **Unclear scope**: fetch **both RC and MC logs**.
+
+If S3 logs are inaccessible for any reason (credentials, expired logs, network issues), report the access failure but continue with the diagnosis based on Prow artifacts alone.
+
+### AWS Profile Mapping
+
+Use the correct AWS CLI profile based on the failing job and the target cluster:
+
+| Job type             | Cluster | AWS profile    |
+| -------------------- | ------- | -------------- |
+| `nightly-ephemeral`  | RC      | `chai-rc-ci`   |
+| `nightly-ephemeral`  | MC      | `chai-mc-ci`   |
+| `on-demand-e2e`      | RC      | `chai-rc-ci`   |
+| `on-demand-e2e`      | MC      | `chai-mc-ci`   |
+| `nightly-integration`| RC      | `chai-rc-int`  |
+| `nightly-integration`| MC      | `chai-mc-int`  |
+
 ### Finding the S3 URIs
 
 Search the e2e build log for lines like:
@@ -132,25 +153,80 @@ There will be one URI per cluster (RC + each MC). The bucket names follow the pa
 - RC: `bastion-log-collection-<regional-account-id>-<region>-an`
 - MC: `bastion-log-collection-<management-account-id>-<region>-an`
 
-### Downloading the logs
+### Fetching the logs
 
-The CI build log prints ready-to-use download commands. If the user has the right AWS credentials configured, they can run these directly. Prompt them to download and extract the logs if the Prow artifacts don't contain enough detail for diagnosis.
-
-Example commands (from build log):
+**Prefer streaming over local downloads.** Where possible, list and read individual log files directly from S3 to avoid accumulating data locally:
 
 ```bash
-# RC logs (requires regional account credentials)
-mkdir -p /tmp/eph-ca269e-regional-logs && \
-  aws s3 cp s3://bastion-log-collection-720644165472-us-east-1-an/collect-logs-<id>.tar.gz /tmp/eph-ca269e-regional-logs/ && \
-  tar xzf /tmp/eph-ca269e-regional-logs/collect-logs-<id>.tar.gz -C /tmp/eph-ca269e-regional-logs
+# List available log archives in the bucket
+aws s3 ls s3://bastion-log-collection-<account>-<region>-an/ --profile <PROFILE>
 
-# MC logs (requires management account credentials)
-mkdir -p /tmp/eph-ca269e-mc01-logs && \
-  aws s3 cp s3://bastion-log-collection-129678139271-us-east-1-an/collect-logs-<id>.tar.gz /tmp/eph-ca269e-mc01-logs/ && \
-  tar xzf /tmp/eph-ca269e-mc01-logs/collect-logs-<id>.tar.gz -C /tmp/eph-ca269e-mc01-logs
+# Stream and extract a specific log file to stdout (no local write)
+aws s3 cp s3://bastion-log-collection-<account>-<region>-an/collect-logs-<id>.tar.gz - \
+  --profile <PROFILE> | tar xzf - --to-stdout inspect-logs/namespaces/<ns>/pods/<pod>/<container>/logs/current.log
 ```
 
-Note: RC and MC use different AWS accounts, so the user may need to switch credentials (e.g. `awsprofile`) between downloads.
+**If streaming is insufficient** (e.g., you need to grep across many files), download to a temp directory, analyze, and **always clean up immediately after**:
+
+```bash
+# Download and extract
+LOGDIR=$(mktemp -d /tmp/ci-logs-XXXXXX)
+aws s3 cp s3://bastion-log-collection-<account>-<region>-an/collect-logs-<id>.tar.gz \
+  "$LOGDIR/" --profile <PROFILE> && \
+  tar xzf "$LOGDIR"/collect-logs-*.tar.gz -C "$LOGDIR"
+
+# ... analyze the logs ...
+
+# REQUIRED: clean up after analysis is complete
+rm -rf "$LOGDIR"
+```
+
+**Only fetch the logs you need** based on the failure scope determined from Prow artifacts. Use the appropriate profile for each cluster.
+
+**Example: RC-only failure in nightly-ephemeral** (e.g., provision error, platform-api crash):
+
+```bash
+# RC logs only — MC logs not needed
+aws s3 cp s3://bastion-log-collection-720644165472-us-east-1-an/collect-logs-<id>.tar.gz - \
+  --profile chai-rc-ci | tar xzf - -C "$LOGDIR"
+```
+
+**Example: MC failure in nightly-ephemeral** (e.g., maestro-agent CONNACK, hosted cluster timeout):
+
+```bash
+# Both RC and MC logs — MC failures often have RC-side root cause
+aws s3 cp s3://bastion-log-collection-720644165472-us-east-1-an/collect-logs-<id>.tar.gz - \
+  --profile chai-rc-ci | tar xzf - -C "$LOGDIR"
+aws s3 cp s3://bastion-log-collection-129678139271-us-east-1-an/collect-logs-<id>.tar.gz - \
+  --profile chai-mc-ci | tar xzf - -C "$LOGDIR"
+```
+
+**Example: nightly-integration failure** (same selective logic, different profiles):
+
+```bash
+# RC logs
+aws s3 cp s3://bastion-log-collection-720644165472-us-east-1-an/collect-logs-<id>.tar.gz - \
+  --profile chai-rc-int | tar xzf - -C "$LOGDIR"
+
+# MC logs (only if MC involvement suspected)
+aws s3 cp s3://bastion-log-collection-129678139271-us-east-1-an/collect-logs-<id>.tar.gz - \
+  --profile chai-mc-int | tar xzf - -C "$LOGDIR"
+```
+
+### Local cleanup policy
+
+**Never leave downloaded S3 logs on disk.** After completing the analysis and including all relevant findings in the diagnosis output, remove all downloaded log files and temp directories. This applies whether the analysis succeeded or failed partway through — always clean up in a `trap` or final cleanup step.
+
+### Error handling for S3 access
+
+If an `aws s3 cp` command fails (e.g., `AccessDenied`, `NoSuchKey`, `ExpiredToken`), include a note in the diagnosis:
+
+```
+⚠️ Could not fetch S3 logs from <RC|MC> (<profile>): <error summary>
+Diagnosis below is based on Prow artifacts only.
+```
+
+Do **not** stop the investigation — proceed with whatever information is available from the Prow artifacts.
 
 ### Analyzing the logs
 
@@ -210,7 +286,48 @@ Use `git show <commit>:<path>` (or Read for nightly/main) to understand the fail
 | `scripts/buildspec/`                      | CodeBuild buildspec scripts                   |
 | `scripts/pipeline-common/`                | Shared pipeline helper scripts                |
 
-## Step 7: Provide Diagnosis
+## Step 7: Classify Failure — Flake vs Genuine
+
+Before proposing a fix, classify the failure. This classification drives what action to take.
+
+### Flake indicators
+
+A failure is likely a **flake** (intermittent/transient) if:
+
+- The same job passed on the immediately preceding or following run with no code changes
+- The error is a timeout, transient network error, or AWS API throttling
+- The error message references temporary conditions (e.g., `RequestLimitExceeded`, `i/o timeout`, `connection reset`, `TLS handshake timeout`)
+- The failure does not reproduce on retry and there is no pattern across consecutive runs
+- The failing test or step has a history of intermittent failures with different error signatures each time
+
+### Genuine failure indicators
+
+A failure is likely a **genuine configuration or code issue** if:
+
+- The same failure (same error signature, same step, same component) occurs on **2 or more consecutive runs**
+- The failure correlates with a recent code change (commit to `main` touching the affected component)
+- The error points to a misconfiguration, missing resource, incorrect value, or logic bug
+- The failure is deterministic — same error every time, not timing-dependent
+
+### Classification output
+
+Always include the classification in the diagnosis:
+
+- **🔀 Flake** — transient/intermittent issue, no code fix needed. Note the flake pattern for tracking.
+- **🔧 Genuine** — configuration or code issue requiring a fix. Proceed to Step 8.
+- **⚠️ Unclear (monitoring)** — first occurrence, not enough signal yet. Flag for monitoring on the next run.
+
+## Step 8: Consecutive Failure Analysis
+
+When today's failure is part of a **consecutive failure streak** (2+ days in a row for the same job), do not treat today's failure in isolation. Compare across the streak:
+
+1. **Collect failure artifacts from each consecutive failing run** — use the job history to identify the streak, then fetch Prow artifacts and S3 logs (selectively, per Step 5b) for at least the current and previous failing runs.
+2. **Compare error signatures** — are the failures the same root cause, or did the root cause shift?
+   - **Same root cause across streak**: reinforce the diagnosis with the additional evidence. Note the streak length (e.g., "failing for 3 consecutive days with the same maestro-agent CONNACK error").
+   - **Root cause shifted**: clearly state that the root cause changed. Identify when it changed and what the new root cause is. This affects PR management (see Step 9).
+3. **Aggregate the signal** — a 3-day streak of the same error is much stronger signal than a single failure. Reflect this confidence in the classification (almost certainly Genuine, not Flake).
+
+## Step 9: Provide Diagnosis
 
 Before presenting findings, gather these additional data points:
 
@@ -225,12 +342,17 @@ Present findings in this format:
 
 **Job:** `<job name and URL>`
 **Type:** `<job type>`
+**Classification:** `<🔀 Flake / 🔧 Genuine / ⚠️ Unclear>`
 **Failed Phase:** `<phase name>` (failed after `<duration>`)
 **Phase Durations:** `provision-ephemeral: <time>` | `e2e-tests: <time>` | `teardown-ephemeral: <time>`
 **Scope:** `<RC / MC / RC↔MC interaction>`
+**Consecutive Failures:** `<N days / first occurrence>`
 
 **Root Cause:**
 <Clear explanation with relevant log excerpts>
+
+**Cross-Day Analysis** (if consecutive failures):
+<Comparison of error signatures across the streak — same root cause or shifted?>
 
 **Related Changes:**
 <Recent commits or PRs that may be related, or "No recent changes to affected components">
@@ -247,6 +369,78 @@ Present findings in this format:
 
 **How to Reproduce Locally:**
 <Commands if applicable, or note if not reproducible locally>
+
+## Step 10: Act on Classification
+
+The action taken depends on the failure classification. Each classification has a different output and PR policy.
+
+### 🔧 Genuine — raise PR directly
+
+Share the root cause and raise a fix PR immediately:
+
+1. **Identify the target repo**:
+   - `rosa-hyperfleet` — Terraform modules, ArgoCD configs, CI scripts, buildspecs
+   - `rosa-hyperfleet-api` — Platform API, CLM service code
+   - `rosa-hyperfleet-cli` — CLI tooling
+2. **Create a fix branch** — branch from `main`: `chai-bot/fix-<job>-<short-description>` (e.g., `chai-bot/fix-ephemeral-maestro-mqtt-config`).
+3. **Implement the fix** — make the minimal change needed to address the root cause. Follow the project's development guidelines (run `make pre-push` before committing).
+4. **Raise the PR** — use `gh pr create` with:
+   - Title: `fix(<component>): <short description of the fix>`
+   - Body: include the diagnosis summary, link to the failing Prow job(s), classification, and the consecutive failure streak if applicable.
+   - Label the PR with `chai-bot` for tracking.
+
+### 🔀 Flake — share fix proposal, ask team before raising PR
+
+Do **not** raise a PR automatically. Instead:
+
+1. Share the root cause analysis and the proposed fix (what would change and where).
+2. Ask the team in the thread whether a PR should be raised. Use a clear prompt:
+   ```
+   This appears to be a flake — proposed fix: <summary of change>.
+   Should I raise a PR for this? Reply in this thread to confirm.
+   ```
+3. If the team confirms in the thread, raise the PR following the same process as Genuine above.
+4. If no response or team declines, skip the PR.
+
+### ⚠️ Unclear — share analysis, request manual investigation
+
+Do **not** raise a PR. Instead:
+
+1. Share everything that was checked and analyzed: Prow artifacts examined, S3 logs fetched (or not), error messages found, components inspected.
+2. Explain **why** the classification is unclear — e.g., first occurrence with no matching pattern, ambiguous error that could be transient or config-related, insufficient log data.
+3. Share the **likely root cause** (best guess) even if confidence is low.
+4. Communicate that manual investigation is needed:
+   ```
+   ⚠️ Unable to determine root cause with confidence. Likely cause: <best guess>.
+   This needs manual investigation. Please share findings in this thread —
+   learnings will be incorporated into future CI analysis.
+   ```
+5. **Learn from the thread**: if the team investigates and shares findings in the daily status thread, offer to turn those learnings into a PR that updates this ci-troubleshooter agent (`.claude/agents/ci-troubleshooter.md`). Learnings worth capturing include:
+   - New error signatures and what they mean
+   - New namespaces or log paths to check
+   - New flake patterns to recognize
+   - Root cause patterns that were previously unclear
+
+   **Keep it low-noise**: post a single message in the thread offering the PR — do not repeat the offer or follow up if there's no response. Example:
+   ```
+   Based on the findings shared here, I can update the CI troubleshooter to recognize this pattern in future runs.
+   Should I raise a PR for that? (updates .claude/agents/ci-troubleshooter.md)
+   ```
+   If approved, raise a PR updating this file with the new patterns. Branch name: `chai-bot/ci-troubleshooter-learnings-<short-description>`. Label: `chai-bot`.
+   If no response or declined, skip — the team can always update the agent manually.
+
+### PR lifecycle for consecutive failures
+
+When a fix PR already exists from a previous day's failure analysis:
+
+1. **Same root cause continues**: keep the existing PR open. Add a comment noting the continued failure with today's run URL and any additional evidence.
+2. **Root cause shifted**: close the existing PR with a comment explaining that the root cause has changed after further analysis. Then raise a new PR targeting the updated root cause.
+3. **Previously Unclear, now Genuine**: if a failure was ⚠️ Unclear yesterday and is now 🔧 Genuine (after consecutive failure analysis or team input), raise a PR as for Genuine.
+4. **Previously Flake, now Genuine**: if a one-off flake recurs consecutively with the same error, reclassify as Genuine and raise a PR.
+5. **Check for existing chai-bot PRs** before creating a new one:
+   ```bash
+   gh pr list --author @me --label chai-bot --state open --search "<job-name> in:title"
+   ```
 
 ## Reference: Job History URLs
 
