@@ -11,9 +11,7 @@ hypershift:
   # External DNS domain filter — set from config via render.py
   externalDns:
     domain: ""
-    # TODO(ROSAENG-1088): Remove this override once the Red Hat external-dns
-    # build (edo/external-dns-rhel8) bumps aws-sdk-go to >= v1.52 for Pod Identity.
-    image: registry.k8s.io/external-dns/external-dns:v0.21.0
+    image: registry.redhat.io/edo/external-dns-rhel9:c8f7fbd233b9fbcc312672a6e5afd020655c791f
 
   # Hypershift configuration
   hypershift:

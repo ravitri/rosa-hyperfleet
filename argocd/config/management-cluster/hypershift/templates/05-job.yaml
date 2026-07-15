@@ -87,27 +87,13 @@ spec:
             _TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
             _API="https://kubernetes.default.svc"
 
-            # Upstream external-dns (ko-built) has the binary at /ko-app/external-dns
-            # instead of /external-dns. Patch the command and add --aws-assume-role.
+            # Patch the command and add --aws-assume-role.
             curl -sf --cacert "$_CA" -H "Authorization: Bearer $_TOKEN" \
               -H "Content-Type: application/json-patch+json" -X PATCH \
               "${_API}/apis/apps/v1/namespaces/hypershift/deployments/external-dns" \
               -d '[
-                {"op":"replace","path":"/spec/template/spec/containers/0/command","value":["/ko-app/external-dns"]},
                 {"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--aws-assume-role='"${DNS_ZONE_OPERATOR_ROLE_ARN}"'"}
               ]' \
-              -o /dev/null -w "  HTTP %{http_code}\n"
-
-            # Upstream v0.21.0 needs discovery.k8s.io and networking.k8s.io API groups
-            # that HyperShift's generated ClusterRole doesn't include.
-            curl -sf --cacert "$_CA" -H "Authorization: Bearer $_TOKEN" \
-              -H "Content-Type: application/merge-patch+json" -X PATCH \
-              "${_API}/apis/rbac.authorization.k8s.io/v1/clusterroles/external-dns" \
-              -d '{"rules":[
-                {"apiGroups":["","discovery.k8s.io"],"resources":["services","endpoints","pods","nodes","endpointslices"],"verbs":["get","watch","list"]},
-                {"apiGroups":["extensions","networking.k8s.io"],"resources":["ingresses","ingressroutes","ingressroutetcps","ingressrouteudps"],"verbs":["get","list","watch"]},
-                {"apiGroups":["route.openshift.io"],"resources":["routes"],"verbs":["get","list","watch"]}
-              ]}' \
               -o /dev/null -w "  HTTP %{http_code}\n"
           fi
       restartPolicy: Never
