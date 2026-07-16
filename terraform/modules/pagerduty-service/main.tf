@@ -22,6 +22,11 @@ resource "pagerduty_service" "regional" {
   alert_creation          = "create_alerts_and_incidents"
   auto_resolve_timeout    = "null"
   acknowledgement_timeout = "null"
+
+  incident_urgency_rule {
+    type    = "constant"
+    urgency = "severity_based"
+  }
 }
 
 # =============================================================================
