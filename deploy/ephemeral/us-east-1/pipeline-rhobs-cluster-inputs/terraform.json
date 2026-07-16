@@ -13,5 +13,6 @@
   "enable_sns_alerting": true,
   "enable_bastion": false,
   "rc_state_bucket": "terraform-state-599476212575-us-east-1",
-  "rc_state_key": "regional-cluster/eph-0b77d452-regional.tfstate"
+  "rc_state_key": "regional-cluster/eph-0b77d452-regional.tfstate",
+  "delete": true
 }
