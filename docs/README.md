@@ -35,6 +35,7 @@ Detailed architecture and rationale for key technical decisions:
 | [Logging Platform](design/logging-platform.md)                                       | Application-level log collection (Vector + Loki)                          |
 | [MC Metrics Remote Write](design/mc-metrics-remote-write.md)                         | MC-to-RC metrics forwarding via RHOBS API Gateway                         |
 | [Monitoring Platform](design/monitoring-platform.md)                                 | Metrics pipeline (Prometheus + Thanos)                                    |
+| [Optimize CodePipeline](design/optimize-codepipeline.md)                             | Direct RC/MC pipeline provisioning; MC autoscaling compatibility          |
 | [Pipeline-Based Lifecycle](design/pipeline-based-lifecycle.md)                       | CodePipeline hierarchy for cluster provisioning                           |
 | [Rate Limiting](design/rate-limiting-architecture.md)                                | Per-account rate limiting for Platform API                                |
 | [Regional Account Minting](design/regional-account-minting.md)                       | AWS account structure and minting pipelines                               |

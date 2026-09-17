@@ -1,6 +1,8 @@
 # Pipeline-Based Cluster Lifecycle Management
 
-**Last Updated Date**: 2026-03-04
+**Last Updated Date**: 2026-09-16
+
+> **Supersession:** Pipeline **creation** (the Layer 1 meta-pipeline `pipeline-provisioner`) is superseded by [optimize-codepipeline.md](optimize-codepipeline.md) (direct RC pipeline + MC factory; layout compatible with future MC autoscaling). This document still describes per-cluster pipeline stages and two-phase infra destroy until that ADR is fully implemented.
 
 ## Summary
 
