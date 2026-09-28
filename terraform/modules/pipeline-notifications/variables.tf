@@ -14,8 +14,8 @@ variable "region" {
   description = "AWS Region for the notification resources"
 }
 
-variable "pipeline_names" {
+variable "project_names" {
   type        = list(string)
-  description = "List of CodePipeline names to monitor for failures. Only failures from these pipelines will trigger notifications."
+  description = "List of CodeBuild project names to monitor for failures. Only failures from these projects will trigger notifications."
 }
 
