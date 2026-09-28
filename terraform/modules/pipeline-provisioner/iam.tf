@@ -46,8 +46,6 @@ resource "aws_iam_role_policy" "codebuild_policy" {
           "s3:GetBucketLocation"
         ]
         Resource = [
-          aws_s3_bucket.pipeline_artifact.arn,
-          "${aws_s3_bucket.pipeline_artifact.arn}/*",
           "arn:aws:s3:::terraform-state-*",
           "arn:aws:s3:::terraform-state-*/*"
         ]
@@ -55,16 +53,35 @@ resource "aws_iam_role_policy" "codebuild_policy" {
       {
         Effect = "Allow"
         Action = [
-          "codepipeline:*",
           "codebuild:*",
           "codestar-connections:*",
-          "iam:*",
           "s3:*",
           "route53:*",
           "lambda:*",
           "events:*"
         ]
         Resource = "*"
+      },
+      {
+        Sid    = "PassRoleToClusterCodeBuild"
+        Effect = "Allow"
+        Action = [
+          "iam:PassRole"
+        ]
+        Resource = [
+          var.rc_codebuild_role_arn,
+          var.mc_codebuild_role_arn
+        ]
+      },
+      {
+        Sid    = "CheckQueueSelfScope"
+        Effect = "Allow"
+        Action = [
+          "codebuild:ListBuildsForProject",
+          "codebuild:BatchGetBuilds",
+          "codebuild:StopBuild"
+        ]
+        Resource = aws_codebuild_project.provisioner.arn
       },
       {
         Sid    = "LambdaManagement"
@@ -214,29 +231,6 @@ resource "aws_iam_role_policy" "build_platform_image_policy" {
         Resource = "arn:aws:logs:${var.region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/codebuild/${local.name_prefix}build-platform-image*"
       },
       {
-        Sid    = "S3PipelineArtifacts"
-        Effect = "Allow"
-        Action = [
-          "s3:GetObject",
-          "s3:GetObjectVersion",
-          "s3:PutObject"
-        ]
-        Resource = [
-          aws_s3_bucket.pipeline_artifact.arn,
-          "${aws_s3_bucket.pipeline_artifact.arn}/*"
-        ]
-      },
-      {
-        Sid    = "KMSArtifactBucket"
-        Effect = "Allow"
-        Action = [
-          "kms:Decrypt",
-          "kms:GenerateDataKey",
-          "kms:DescribeKey"
-        ]
-        Resource = aws_kms_key.pipeline_artifact.arn
-      },
-      {
         Sid    = "ECRPublicAccess"
         Effect = "Allow"
         Action = [
@@ -251,66 +245,6 @@ resource "aws_iam_role_policy" "build_platform_image_policy" {
           "sts:GetServiceBearerToken"
         ]
         Resource = "*"
-      }
-    ]
-  })
-}
-
-# IAM Role for CodePipeline
-resource "aws_iam_role" "codepipeline_role" {
-  name = "${local.name_prefix}provisioner-pipeline-role"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = "sts:AssumeRole"
-        Effect = "Allow"
-        Principal = {
-          Service = "codepipeline.amazonaws.com"
-        }
-      }
-    ]
-  })
-}
-
-resource "aws_iam_role_policy" "codepipeline_policy" {
-  role = aws_iam_role.codepipeline_role.name
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "s3:GetObject",
-          "s3:GetObjectVersion",
-          "s3:GetBucketVersioning",
-          "s3:PutObjectAcl",
-          "s3:PutObject"
-        ]
-        Resource = [
-          aws_s3_bucket.pipeline_artifact.arn,
-          "${aws_s3_bucket.pipeline_artifact.arn}/*"
-        ]
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "codestar-connections:UseConnection"
-        ]
-        Resource = data.aws_codestarconnections_connection.github.arn
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "codebuild:BatchGetBuilds",
-          "codebuild:StartBuild"
-        ]
-        Resource = [
-          aws_codebuild_project.build_platform_image.arn,
-          aws_codebuild_project.provisioner.arn
-        ]
       }
     ]
   })

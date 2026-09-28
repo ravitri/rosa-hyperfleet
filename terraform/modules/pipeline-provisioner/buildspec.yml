@@ -7,6 +7,7 @@ phases:
   build:
     on-failure: RETRY-1
     commands:
+      - source scripts/pipeline-common/check-queue.sh
       - chmod +x ./scripts/provision-pipelines.sh
       - ./scripts/provision-pipelines.sh
 

@@ -2,14 +2,14 @@
 # Pipeline Provisioner Outputs
 # =============================================================================
 
-output "provisioner_pipeline_name" {
-  description = "Name of the Pipeline Provisioner CodePipeline"
-  value       = aws_codepipeline.provisioner.name
+output "provisioner_project_name" {
+  description = "Name of the provisioner CodeBuild project"
+  value       = aws_codebuild_project.provisioner.name
 }
 
-output "provisioner_pipeline_arn" {
-  description = "ARN of the Pipeline Provisioner CodePipeline"
-  value       = aws_codepipeline.provisioner.arn
+output "provisioner_project_arn" {
+  description = "ARN of the provisioner CodeBuild project"
+  value       = aws_codebuild_project.provisioner.arn
 }
 
 output "github_connection_arn" {

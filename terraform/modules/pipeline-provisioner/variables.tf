@@ -61,6 +61,10 @@ variable "codebuild_image" {
 
 variable "mc_codebuild_role_arn" {
   type        = string
-  description = "ARN of the shared MC CodeBuild IAM role (empty string to create per-MC roles)"
-  default     = ""
+  description = "ARN of the shared MC CodeBuild IAM role"
+}
+
+variable "rc_codebuild_role_arn" {
+  type        = string
+  description = "ARN of the shared RC CodeBuild IAM role"
 }
