@@ -244,6 +244,8 @@ Instance type and other terraform/config changes are **hash2**. Cluster projects
 
 [`check-queue.sh`](../../scripts/pipeline-common/check-queue.sh) is the first command of every combined buildspec. It `StopBuild`s older **QUEUED** builds and **exit 0** if a newer SHA is pending. Winner: `git merge-base --is-ancestor` on `sourceVersion` (unrelated SHAs â†’ higher `buildNumber`). Never stop past `pre_build`. IAM: `ListBuildsForProject` / `BatchGetBuilds` / `StopBuild` **self ARN only**. EventBridge Slack: `FAILED` only.
 
+**Full implementation details:** See [check-queue-skip-logic.md](check-queue-skip-logic.md) for the complete algorithm, source vs. execute distinction, example timeline, and troubleshooting guide.
+
 ```mermaid
 flowchart TD
   Start[Build starts pre_build] --> List[ListBuildsForProject and BatchGetBuilds]
@@ -283,4 +285,4 @@ CodePipeline V2 glob `file_paths` become CodeBuild regex webhook groups (`**` â†
 
 **Local buildspec testing** using AWS CodeBuild local images, for faster iteration on `check-queue.sh` and combined specs.
 
-Related: [pipeline-based-lifecycle.md](pipeline-based-lifecycle.md), [fully-private-eks-bootstrap.md](fully-private-eks-bootstrap.md), [testing-strategy.md](testing-strategy.md), [environment-provisioning.md](../environment-provisioning.md), [regional-account-minting.md](regional-account-minting.md), [kube-applier-architecture.md](kube-applier-architecture.md).
+Related: [check-queue-skip-logic.md](check-queue-skip-logic.md), [pipeline-based-lifecycle.md](pipeline-based-lifecycle.md), [fully-private-eks-bootstrap.md](fully-private-eks-bootstrap.md), [testing-strategy.md](testing-strategy.md), [environment-provisioning.md](../environment-provisioning.md), [regional-account-minting.md](regional-account-minting.md), [kube-applier-architecture.md](kube-applier-architecture.md).

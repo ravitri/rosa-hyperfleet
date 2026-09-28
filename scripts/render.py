@@ -738,6 +738,7 @@ def main() -> int:
             render_file(templates_dir, "pipeline-provisioner-inputs/terraform.json", ctx, out_dir / "pipeline-provisioner-inputs" / "terraform.json")
             render_file(templates_dir, "pipeline-provisioner-inputs/regional-cluster.json", ctx, out_dir / "pipeline-provisioner-inputs" / "regional-cluster.json")
             render_file(templates_dir, "pipeline-regional-cluster-inputs/terraform.json", ctx, out_dir / "pipeline-regional-cluster-inputs" / "terraform.json")
+            render_file(templates_dir, "pipeline-regional-cluster-inputs/static.tfvars.json", ctx, out_dir / "pipeline-regional-cluster-inputs" / "static.tfvars.json")
 
             # Per-cluster-type: ArgoCD values + bootstrap
             app_config = resolve_templates(ctx.get("applications", {}), ctx)
@@ -753,6 +754,7 @@ def main() -> int:
                 mc_id = mc["management_id"]
                 render_file(templates_dir, "pipeline-provisioner-inputs/management-cluster.json", mc_ctx, out_dir / "pipeline-provisioner-inputs" / f"management-cluster-{mc_id}.json")
                 render_file(templates_dir, "pipeline-management-cluster-inputs/terraform.json", mc_ctx, out_dir / f"pipeline-management-cluster-{mc_id}-inputs" / "terraform.json")
+                render_file(templates_dir, "pipeline-management-cluster-inputs/static.tfvars.json", mc_ctx, out_dir / f"pipeline-management-cluster-{mc_id}-inputs" / "static.tfvars.json")
 
         print()
 
