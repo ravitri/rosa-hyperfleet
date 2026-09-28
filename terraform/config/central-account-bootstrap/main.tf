@@ -47,10 +47,11 @@ module "pipeline_provisioner" {
   codebuild_image       = module.platform_image.container_image
   platform_ecr_repo     = module.platform_image.ecr_repository_url
   name_prefix           = var.name_prefix
-  mc_codebuild_role_arn = var.enable_shared_mc_role ? aws_iam_role.mc_codebuild_role[0].arn : ""
+  rc_codebuild_role_arn = aws_iam_role.rc_codebuild_role.arn
+  mc_codebuild_role_arn = aws_iam_role.mc_codebuild_role.arn
 }
 
-# Pipeline Failure Notifications
+# CodeBuild Failure Notifications
 # Gated by an explicit feature flag (see var.enable_slack_notifications).
 module "pipeline_notifications" {
   source = "../../modules/pipeline-notifications"
@@ -59,5 +60,5 @@ module "pipeline_notifications" {
   slack_webhook_ssm_param = var.slack_webhook_ssm_param
   name_prefix             = var.name_prefix
   region                  = var.region
-  pipeline_names          = [module.pipeline_provisioner.provisioner_pipeline_name]
+  project_names           = [module.pipeline_provisioner.provisioner_project_name]
 }
