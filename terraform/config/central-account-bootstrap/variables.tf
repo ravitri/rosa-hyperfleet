@@ -62,9 +62,3 @@ variable "slack_webhook_ssm_param" {
 # =============================================================================
 # MC Shared Role Configuration
 # =============================================================================
-
-variable "enable_shared_mc_role" {
-  type        = bool
-  description = "Create a shared IAM role for all MC pipelines. When true, creates mc-codebuild-role; when false (default), each MC pipeline creates its own role. Only enable for stage environment."
-  default     = false
-}

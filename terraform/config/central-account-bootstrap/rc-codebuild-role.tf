@@ -1,17 +1,12 @@
-# Shared IAM role for ALL Management Cluster pipeline CodeBuild projects
-# Only created when enable_shared_mc_role = true (stage environment)
+# Shared IAM role for Regional Cluster CodeBuild projects
 #
-# This role is shared by all MC pipelines (mc01, mc02, ..., mcNN) to reduce
-# IAM role proliferation as the number of MCs scales. The role uses wildcard
-# patterns (mc*) to grant permissions to all numeric MC resources.
+# This role is used by SDK-created RC CodeBuild projects (one per region).
+# The role name is referenced by ARN in the SDK provisioner script.
 
-data "aws_caller_identity" "mc_shared" {
-  count = var.enable_shared_mc_role ? 1 : 0
-}
+data "aws_caller_identity" "rc_shared" {}
 
-resource "aws_iam_role" "mc_codebuild_role" {
-  count = var.enable_shared_mc_role ? 1 : 0
-  name  = "mc-codebuild-role"
+resource "aws_iam_role" "rc_codebuild_role" {
+  name = "rc-codebuild-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -27,9 +22,8 @@ resource "aws_iam_role" "mc_codebuild_role" {
   })
 }
 
-resource "aws_iam_role_policy" "mc_codebuild_policy" {
-  count = var.enable_shared_mc_role ? 1 : 0
-  role  = aws_iam_role.mc_codebuild_role[0].name
+resource "aws_iam_role_policy" "rc_codebuild_policy" {
+  role = aws_iam_role.rc_codebuild_role.name
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -42,16 +36,20 @@ resource "aws_iam_role_policy" "mc_codebuild_policy" {
           "logs:PutLogEvents"
         ]
         Resource = [
-          # Explicit suffixes for the 4 MC CodeBuild project types
-          "arn:aws:logs:${var.region}:${data.aws_caller_identity.mc_shared[0].account_id}:log-group:/aws/codebuild/mc*-apply",
-          "arn:aws:logs:${var.region}:${data.aws_caller_identity.mc_shared[0].account_id}:log-group:/aws/codebuild/mc*-apply:*",
-          "arn:aws:logs:${var.region}:${data.aws_caller_identity.mc_shared[0].account_id}:log-group:/aws/codebuild/mc*-bootstrap",
-          "arn:aws:logs:${var.region}:${data.aws_caller_identity.mc_shared[0].account_id}:log-group:/aws/codebuild/mc*-bootstrap:*",
-          "arn:aws:logs:${var.region}:${data.aws_caller_identity.mc_shared[0].account_id}:log-group:/aws/codebuild/mc*-register",
-          "arn:aws:logs:${var.region}:${data.aws_caller_identity.mc_shared[0].account_id}:log-group:/aws/codebuild/mc*-register:*",
-          "arn:aws:logs:${var.region}:${data.aws_caller_identity.mc_shared[0].account_id}:log-group:/aws/codebuild/mc*-kube-applier-dynamodb",
-          "arn:aws:logs:${var.region}:${data.aws_caller_identity.mc_shared[0].account_id}:log-group:/aws/codebuild/mc*-kube-applier-dynamodb:*"
+          # RC CodeBuild project logs (name pattern: {regional_id}, e.g., "regional" or "abc123-regional")
+          "arn:aws:logs:${var.region}:${data.aws_caller_identity.rc_shared.account_id}:log-group:/aws/codebuild/*regional*",
+          "arn:aws:logs:${var.region}:${data.aws_caller_identity.rc_shared.account_id}:log-group:/aws/codebuild/*regional*:*"
         ]
+      },
+      {
+        Sid    = "CheckQueueSelfScope"
+        Effect = "Allow"
+        Action = [
+          "codebuild:ListBuildsForProject",
+          "codebuild:BatchGetBuilds",
+          "codebuild:StopBuild"
+        ]
+        Resource = "arn:aws:codebuild:${var.region}:${data.aws_caller_identity.rc_shared.account_id}:project/*regional*"
       },
       {
         Effect = "Allow"
@@ -64,8 +62,6 @@ resource "aws_iam_role_policy" "mc_codebuild_policy" {
           "s3:GetBucketLocation"
         ]
         Resource = [
-          "arn:aws:s3:::mc*-artifacts-*",
-          "arn:aws:s3:::mc*-artifacts-*/*",
           "arn:aws:s3:::terraform-state-*",
           "arn:aws:s3:::terraform-state-*/*"
         ]
@@ -77,11 +73,11 @@ resource "aws_iam_role_policy" "mc_codebuild_policy" {
           "ssm:GetParameters"
         ]
         Resource = [
-          "arn:aws:ssm:*:${data.aws_caller_identity.mc_shared[0].account_id}:parameter/infra/*"
+          "arn:aws:ssm:*:${data.aws_caller_identity.rc_shared.account_id}:parameter/infra/*"
         ]
       },
       {
-        # Cross-account assume role for child MC accounts. Account IDs are
+        # Cross-account assume role for child RC accounts. Account IDs are
         # runtime-resolved from SSM parameters and cannot be hardcoded here.
         # This is intentionally scoped to the specific role name only.
         Effect   = "Allow"
@@ -89,8 +85,7 @@ resource "aws_iam_role_policy" "mc_codebuild_policy" {
         Resource = "arn:aws:iam::*:role/rosa-hyperfleet-account-admin"
       },
       # Permissions for same-account operations (when TARGET_ACCOUNT_ID == CENTRAL_ACCOUNT_ID)
-      # In production, cross-account deployments should use OrganizationAccountAccessRole
-      # These permissions allow Terraform to provision management cluster infrastructure
+      # These permissions allow Terraform to provision regional cluster infrastructure
       {
         Effect = "Allow"
         Action = [
@@ -114,6 +109,10 @@ resource "aws_iam_role_policy" "mc_codebuild_policy" {
           "ecs:StopTask",
           "ecs:DescribeTasks",
           "ecs:ListTasks",
+          # RDS - For hyperfleet-db
+          "rds:*",
+          # ElastiCache - For Valkey rate limiting
+          "elasticache:*",
           # Secrets Manager - For ECS bootstrap and cluster secrets
           "secretsmanager:*",
           # IAM - For creating cluster roles and policies
@@ -165,6 +164,10 @@ resource "aws_iam_role_policy" "mc_codebuild_policy" {
           "kms:ListGrants",
           "kms:RevokeGrant",
           "kms:RetireGrant",
+          # Route53 - For DNS management
+          "route53:*",
+          # DynamoDB - For kube-applier state (RC provisions MC's DynamoDB)
+          "dynamodb:*",
           # Logs - For EKS control plane logs and ECS task logs
           "logs:CreateLogGroup",
           "logs:DeleteLogGroup",
@@ -188,7 +191,9 @@ resource "aws_iam_role_policy" "mc_codebuild_policy" {
           StringEquals = {
             "iam:PassedToService" = [
               "eks.amazonaws.com",
-              "ecs-tasks.amazonaws.com"
+              "ecs-tasks.amazonaws.com",
+              "rds.amazonaws.com",
+              "elasticache.amazonaws.com"
             ]
           }
         }

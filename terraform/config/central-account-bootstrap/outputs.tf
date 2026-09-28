@@ -2,14 +2,14 @@
 # Pipeline Provisioner Outputs
 # =============================================================================
 
-output "provisioner_pipeline_name" {
-  description = "Name of the Pipeline Provisioner CodePipeline"
-  value       = module.pipeline_provisioner.provisioner_pipeline_name
+output "provisioner_project_name" {
+  description = "Name of the provisioner CodeBuild project"
+  value       = module.pipeline_provisioner.provisioner_project_name
 }
 
-output "provisioner_pipeline_arn" {
-  description = "ARN of the Pipeline Provisioner CodePipeline"
-  value       = module.pipeline_provisioner.provisioner_pipeline_arn
+output "provisioner_project_arn" {
+  description = "ARN of the provisioner CodeBuild project"
+  value       = module.pipeline_provisioner.provisioner_project_arn
 }
 
 output "github_connection_arn" {
@@ -61,10 +61,15 @@ output "platform_image_tag" {
 }
 
 # =============================================================================
-# MC Shared Role
+# Cluster CodeBuild Roles
 # =============================================================================
 
+output "rc_codebuild_role_arn" {
+  description = "ARN of the centrally-managed IAM role used by RC CodeBuild projects"
+  value       = aws_iam_role.rc_codebuild_role.arn
+}
+
 output "mc_codebuild_role_arn" {
-  description = "ARN of the shared IAM role used by all MC pipeline CodeBuild projects (empty when enable_shared_mc_role=false)"
-  value       = var.enable_shared_mc_role ? aws_iam_role.mc_codebuild_role[0].arn : ""
+  description = "ARN of the shared IAM role used by all MC CodeBuild projects"
+  value       = aws_iam_role.mc_codebuild_role.arn
 }
