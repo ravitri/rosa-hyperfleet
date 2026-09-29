@@ -1,56 +1,37 @@
-# Ephemeral environment template
-#
-# This is not a living environment — it is a template for short-lived
-# environments used by CI e2e tests and developer workflows. A UUID
-# (eph_prefix) is injected at render time to isolate each instance within
-# shared CI or dev AWS accounts.
-#
-# DNS account pool selection:
-#   Ephemeral environments run in two account pools with separate DNS:
-#     - dev accounts  → dev0.rosa.devshift.net  (local developer environments)
-#     - CI accounts   → ci00.rosa.devshift.net  (CI e2e test environments)
-#   The `ci` template variable (true when both EPH_PREFIX and BUILD_ID are
-#   set) selects the correct pool. BUILD_ID is set by CI pipelines; when
-#   rendering locally or during CI lint checks (no EPH_PREFIX), the default
-#   dev0 domain is used so rendered files match what is committed.
-
-deployment_name: "{{ aws_region }}{% if eph_prefix %}-{{ eph_prefix }}{% endif %}"
-
+deployment_name: '{{ aws_region }}{% if eph_prefix %}-{{ eph_prefix }}{% endif %}'
 dns:
-  domain: "{% if ci %}ci00{% else %}dev0{% endif %}.rosa.devshift.net"
-
-# Pin a specific AMI for all worker nodes (RC + MC), covering both the Karpenter
-# EC2NodeClass and the Terraform bootstrap node group. ami-08534dafc055ff299 is a
-# RHEL EKS image bootstrapped via nodeadm. amiFamily AL2023: Karpenter generates
-# the nodeadm NodeConfig itself, including apiServerEndpoint, certificateAuthority,
-# and cidr. The image is nodeadm-compatible, so the AL2023-family bootstrap works
-# on RHEL. (A name-only Custom NodeConfig fails: nodeadm hard-fails validation with
-# "Apiserver endpoint is missing" rather than resolving it via eks:DescribeCluster.)
+  domain: '{% if ci %}ci00{% else %}dev0{% endif %}.rosa.devshift.net'
 worker_node_ami:
   family: AL2023
   id: ami-08534dafc055ff299
-
 regional_cluster:
   enable_bastion: true
   enable_write_sre_tools: true
-  node_instance_families: ["m8i-flex", "m7i-flex"]
-  hyperfleet_db_instance_class: "db.t4g.medium"
+  node_instance_families:
+  - m8i-flex
+  - m7i-flex
+  hyperfleet_db_instance_class: db.t4g.medium
   hyperfleet_db_deletion_protection: false
   hyperfleet_db_skip_final_snapshot: true
   hyperfleet_db_performance_insights_enabled: false
   hyperfleet_db_monitoring_interval: 0
   enable_sre_tools_gateway: true
   enable_sre_public_access: false
-
+  enable_rate_limit_redis: true
 applications:
   regional-cluster:
     hyperfleet:
-      oidcS3Bucket: "hypershift-{{ eph_prefix }}-regional-oidc-{{ account_id }}"
-
+      oidcS3Bucket: hypershift-{{ eph_prefix }}-regional-oidc-{{ account_id }}
 management_cluster_defaults:
   enable_bastion: true
-  node_instance_families: ["m8i-flex", "m7i-flex"]
-
+  node_instance_families:
+  - m8i-flex
+  - m7i-flex
 observability:
   pagerduty:
     enabled: false
+platformApi:
+  app:
+    image:
+      repository: quay.io/travi/rosa-hyperfleet-api
+      tag: ratelimit
