@@ -6,8 +6,8 @@ set -euo pipefail
 # =============================================================================
 # This script bootstraps the central AWS account with:
 # 1. Terraform state infrastructure (S3 bucket with lockfile-based locking)
-# 2. Regional cluster pipeline infrastructure
-# 3. Management cluster pipeline infrastructure
+# 2. Regional cluster CodeBuild infrastructure
+# 3. Management cluster CodeBuild infrastructure
 #
 # Prerequisites:
 # - AWS CLI configured with central account credentials
@@ -26,7 +26,7 @@ show_usage() {
     cat <<EOF
 Usage: $0 [OPTIONS] [GITHUB_REPOSITORY] [GITHUB_BRANCH] [ENVIRONMENT]
 
-Bootstrap the central AWS account with pipeline infrastructure.
+Bootstrap the central AWS account with CodeBuild infrastructure.
 
 ARGUMENTS:
     GITHUB_REPOSITORY    GitHub repository in owner/name format (default: 'openshift-online/rosa-hyperfleet')
@@ -44,11 +44,11 @@ ENVIRONMENT VARIABLES:
                         2) this env var, 3) AWS CLI config, 4) us-east-1. Region is extracted from the
                         config filename stem (e.g., us-east-1.yaml → us-east-1). Only use this env var
                         for bootstrapping before any config files exist.
-    ENABLE_SLACK_NOTIFICATIONS  Enable pipeline failure notifications to Slack (true|false).
+    ENABLE_SLACK_NOTIFICATIONS  Enable CodeBuild failure notifications to Slack (true|false).
                              Opt-in: defaults to false. Set to true to enable.
     SLACK_WEBHOOK_SSM_PARAM  SSM Parameter Store path containing Slack webhook URL (only used when
                              notifications are enabled). Default: /rosa-regional/slack/webhook-url
-    ENABLE_SHARED_MC_ROLE    Create shared mc-codebuild-role for all MC pipelines (true|false).
+    ENABLE_SHARED_MC_ROLE    Create shared mc-codebuild-role for all MC CodeBuild projects (true|false).
                              Opt-in: defaults to false. Set to true for stage environment only.
     AWS_PROFILE         AWS CLI profile to use
 
@@ -166,20 +166,20 @@ if [ -z "$REGION" ]; then
     exit 1
 fi
 
-# Validate: all rendered pipeline configs should use the same region
-# This prevents pipelines from being scattered across different regions
+# Validate: all rendered CodeBuild configs should use the same region
+# This prevents CodeBuild projects from being scattered across different regions
 if [ -d "deploy/${TARGET_ENVIRONMENT}" ]; then
-    echo "Validating pipeline regions for consistency..."
+    echo "Validating CodeBuild project regions for consistency..."
     MISMATCHED_REGIONS=()
     while IFS= read -r json_file; do
         CONFIG_REGION=$(jq -r '.region // empty' "$json_file" 2>/dev/null)
         if [ -n "$CONFIG_REGION" ] && [ "$CONFIG_REGION" != "$REGION" ]; then
             MISMATCHED_REGIONS+=("$json_file: expected $REGION, got $CONFIG_REGION")
         fi
-    done < <(find "deploy/${TARGET_ENVIRONMENT}" -type f -name "*.json" -path "*/pipeline-*-inputs/*" 2>/dev/null)
+    done < <(find "deploy/${TARGET_ENVIRONMENT}" -type f -name "*.json" -path "*/codebuild-*-inputs/*" 2>/dev/null)
 
     if [ ${#MISMATCHED_REGIONS[@]} -gt 0 ]; then
-        echo "❌ ERROR: Pipeline region mismatch detected!" >&2
+        echo "❌ ERROR: CodeBuild project region mismatch detected!" >&2
         echo "Expected region: $REGION (from config/${TARGET_ENVIRONMENT}/<region>.yaml)" >&2
         echo "" >&2
         echo "Mismatched files:" >&2
@@ -188,7 +188,7 @@ if [ -d "deploy/${TARGET_ENVIRONMENT}" ]; then
         echo "Run 'uv run scripts/render.py' to regenerate deploy/ files from config/ source" >&2
         exit 1
     fi
-    echo "✓ All pipeline configs use region: $REGION"
+    echo "✓ All CodeBuild project configs use region: $REGION"
 fi
 
 NAME_PREFIX="${NAME_PREFIX:-}"
@@ -319,7 +319,7 @@ CONNECTION_STATUS=$(aws codestar-connections get-connection \
 if [[ "$CONNECTION_STATUS" != "AVAILABLE" ]]; then
     echo ""
     echo "⚠️  Connection status is: $CONNECTION_STATUS"
-    echo "   The pipeline provisioner requires an AVAILABLE connection to function."
+    echo "   CodeBuild projects require an AVAILABLE connection to function."
     echo "   Please authorize the connection in the AWS Console before continuing."
     echo ""
 
@@ -347,7 +347,7 @@ echo "✅ CodeStar connection is AVAILABLE"
 
 echo ""
 echo "==================================================="
-echo "Step 3: Deploying Pipeline Infrastructure"
+echo "Step 3: Deploying CodeBuild Infrastructure"
 echo "==================================================="
 
 cd "${REPO_ROOT}/terraform/config/central-account-bootstrap"

@@ -23,6 +23,12 @@ variable "name_prefix" {
   default     = ""
 }
 
+variable "iam_role_prefix" {
+  type        = string
+  description = "Optional prefix for IAM role names. Defaults to name_prefix if not set. Ephemeral envs use eph-{id}, standing envs use empty string for unprefixed roles."
+  default     = null
+}
+
 # =============================================================================
 # AWS Configuration
 # =============================================================================
