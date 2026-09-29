@@ -1,19 +1,9 @@
 # =============================================================================
-# Pipeline Provisioner Outputs
+# GitHub Connection
 # =============================================================================
 
-output "provisioner_project_name" {
-  description = "Name of the provisioner CodeBuild project"
-  value       = module.pipeline_provisioner.provisioner_project_name
-}
-
-output "provisioner_project_arn" {
-  description = "ARN of the provisioner CodeBuild project"
-  value       = module.pipeline_provisioner.provisioner_project_arn
-}
-
 output "github_connection_arn" {
-  description = "ARN of the shared GitHub connection (used by all pipelines)"
+  description = "ARN of the shared GitHub connection (used by all CodeBuild projects)"
   value       = aws_codestarconnections_connection.github.arn
 }
 
@@ -27,22 +17,17 @@ output "github_connection_status" {
   value       = aws_codestarconnections_connection.github.connection_status
 }
 
-output "provisioner_role_arn" {
-  description = "ARN of the IAM role used by the provisioner CodeBuild project"
-  value       = module.pipeline_provisioner.provisioner_role_arn
-}
-
 # =============================================================================
 # General Information
 # =============================================================================
 
 output "central_account_id" {
-  description = "AWS Account ID where pipelines are deployed"
+  description = "AWS Account ID where CodeBuild projects are deployed"
   value       = data.aws_caller_identity.current.account_id
 }
 
 output "deployment_region" {
-  description = "AWS Region where pipelines are deployed"
+  description = "AWS Region where CodeBuild projects are deployed"
   value       = var.region
 }
 
@@ -58,6 +43,11 @@ output "platform_ecr_repository_url" {
 output "platform_image_tag" {
   description = "Tag of the platform image (based on Dockerfile hash)"
   value       = module.platform_image.image_tag
+}
+
+output "platform_container_image" {
+  description = "Full container image URI (repository:tag) for use by provision-codebuilds.sh"
+  value       = module.platform_image.container_image
 }
 
 # =============================================================================

@@ -393,11 +393,28 @@ terraform apply tfplan
 
 echo ""
 echo "==================================================="
+echo "Step 4: Provisioning CodeBuild Projects"
+echo "==================================================="
+
+# Export terraform outputs for provision-codebuilds.sh
+export PLATFORM_IMAGE=$(terraform output -raw platform_container_image)
+export GITHUB_CONNECTION_ARN=$(terraform output -raw github_connection_arn)
+export RC_CODEBUILD_ROLE_ARN=$(terraform output -raw rc_codebuild_role_arn)
+export MC_CODEBUILD_ROLE_ARN=$(terraform output -raw mc_codebuild_role_arn)
+export ENVIRONMENT="${TARGET_ENVIRONMENT}"
+export GITHUB_REPOSITORY="${GITHUB_REPOSITORY}"
+export GITHUB_BRANCH="${GITHUB_BRANCH}"
+
+cd "${REPO_ROOT}"
+
+echo "Running provision-codebuilds.sh..."
+./scripts/provision-codebuilds.sh
+
+echo ""
+echo "==================================================="
 echo "✅ Bootstrap Complete!"
 echo "==================================================="
 echo ""
-echo "To deploy clusters, add region deployments to config.yaml and run scripts/render.py."
-echo "Generated files will appear under deploy/<env>/<name>/."
+echo "CodeBuild projects have been created for RC/MC clusters."
+echo "To add more regions, update config/<env>/<region>.yaml and run scripts/render.py."
 echo ""
-
-cd "${REPO_ROOT}"

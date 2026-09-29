@@ -34,27 +34,118 @@ verify_platform_image_exists() {
     local repo="${image_uri%:*}"
     local tag="${image_uri##*:}"
 
-    echo "Verifying platform image exists: $image_uri"
-
     # Public ECR uses different API
     if [[ "$repo" =~ ^public\.ecr\.aws ]]; then
         if ! aws ecr-public describe-images --repository-name "${repo##*/}" --image-ids imageTag="$tag" --region us-east-1 --no-cli-pager >/dev/null 2>&1; then
-            echo "ERROR: Platform image not found in ECR: $image_uri" >&2
-            echo "Run the build-platform-image job first to build and push the image." >&2
-            exit 1
+            return 1
         fi
     else
         # Private ECR - extract region from repo URI
         local region="${repo#*.ecr.}"
         region="${region%%.*}"
         if ! aws ecr describe-images --repository-name "${repo##*/}" --image-ids imageTag="$tag" --region "$region" --no-cli-pager >/dev/null 2>&1; then
-            echo "ERROR: Platform image not found in ECR: $image_uri" >&2
-            echo "Run the build-platform-image job first to build and push the image." >&2
-            exit 1
+            return 1
         fi
     fi
 
-    echo "✓ Platform image verified: $image_uri"
+    return 0
+}
+
+# Ensure platform image exists; build if missing (Day-0/1)
+ensure_platform_image() {
+    local image_uri="$1"
+
+    echo "Ensuring platform image exists: $image_uri"
+
+    if verify_platform_image_exists "$image_uri"; then
+        echo "✓ Platform image exists: $image_uri"
+        return 0
+    fi
+
+    echo "Platform image not found in ECR — building now..."
+
+    # Determine build project name
+    local project_name="${NAME_PREFIX:+${NAME_PREFIX}-}build-platform-image"
+
+    # Get current git SHA (or use HEAD if not available)
+    local git_sha
+    if git_sha=$(git rev-parse HEAD 2>/dev/null); then
+        echo "Building at git SHA: $git_sha"
+    else
+        git_sha="HEAD"
+        echo "WARNING: git not available, using sourceVersion=HEAD"
+    fi
+
+    # Start the build
+    echo "Starting build: $project_name"
+    local build_id
+    if ! build_id=$(aws codebuild start-build \
+        --project-name "$project_name" \
+        --source-version "$git_sha" \
+        --query 'build.id' \
+        --output text \
+        --no-cli-pager 2>&1); then
+        echo "ERROR: Failed to start build for $project_name" >&2
+        echo "$build_id" >&2
+        exit 1
+    fi
+
+    echo "Build started: $build_id"
+
+    # Wait for build to complete (poll every 15s, timeout 30 min)
+    local max_wait=1800
+    local waited=0
+    local poll_interval=15
+
+    while [ $waited -lt $max_wait ]; do
+        local status
+        if ! status=$(aws codebuild batch-get-builds \
+            --ids "$build_id" \
+            --query 'builds[0].buildStatus' \
+            --output text \
+            --no-cli-pager 2>&1); then
+            echo "WARNING: batch-get-builds failed, retrying..." >&2
+            sleep $poll_interval
+            waited=$((waited + poll_interval))
+            continue
+        fi
+
+        case "$status" in
+            SUCCEEDED)
+                echo "✓ Build succeeded: $build_id"
+                break
+                ;;
+            FAILED|TIMED_OUT|FAULT|STOPPED)
+                echo "ERROR: Build failed with status: $status" >&2
+                echo "Check CloudWatch logs for build: $build_id" >&2
+                exit 1
+                ;;
+            IN_PROGRESS|QUEUED)
+                echo "  [$waited/${max_wait}s] Build status: $status"
+                sleep $poll_interval
+                waited=$((waited + poll_interval))
+                ;;
+            *)
+                echo "WARNING: Unknown build status: $status" >&2
+                sleep $poll_interval
+                waited=$((waited + poll_interval))
+                ;;
+        esac
+    done
+
+    if [ $waited -ge $max_wait ]; then
+        echo "ERROR: Build did not complete within ${max_wait}s" >&2
+        exit 1
+    fi
+
+    # Re-verify image now exists
+    echo "Re-verifying platform image after build..."
+    if ! verify_platform_image_exists "$image_uri"; then
+        echo "ERROR: Platform image still missing after successful build!" >&2
+        exit 1
+    fi
+
+    echo "✓ Platform image built and verified: $image_uri"
 }
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -272,12 +363,12 @@ generate_webhook_filters() {
                 [
                     {type: "EVENT", pattern: "PUSH"},
                     {type: "HEAD_REF", pattern: $branch_pattern},
-                    {type: "FILE_PATH", pattern: ("^deploy/" + $env + "/" + $region + "/pipeline-regional-cluster-inputs/terraform\\\\.json$")}
+                    {type: "FILE_PATH", pattern: ("^deploy/" + $env + "/" + $region + "/codebuild-regional-cluster-inputs/terraform\\\\.json$")}
                 ],
                 [
                     {type: "EVENT", pattern: "PUSH"},
                     {type: "HEAD_REF", pattern: $branch_pattern},
-                    {type: "FILE_PATH", pattern: "^terraform/config/pipeline-regional-cluster/.*"}
+                    {type: "FILE_PATH", pattern: "^terraform/config/codebuild-regional-cluster/.*"}
                 ],
                 [
                     {type: "EVENT", pattern: "PUSH"},
@@ -311,12 +402,12 @@ generate_webhook_filters() {
                 [
                     {type: "EVENT", pattern: "PUSH"},
                     {type: "HEAD_REF", pattern: $branch_pattern},
-                    {type: "FILE_PATH", pattern: ("^deploy/" + $env + "/" + $region + "/pipeline-management-cluster-" + $mc_id + "-inputs/terraform\\\\.json$")}
+                    {type: "FILE_PATH", pattern: ("^deploy/" + $env + "/" + $region + "/codebuild-management-cluster-" + $mc_id + "-inputs/terraform\\\\.json$")}
                 ],
                 [
                     {type: "EVENT", pattern: "PUSH"},
                     {type: "HEAD_REF", pattern: $branch_pattern},
-                    {type: "FILE_PATH", pattern: "^terraform/config/pipeline-management-cluster/.*"}
+                    {type: "FILE_PATH", pattern: "^terraform/config/codebuild-management-cluster/.*"}
                 ],
                 [
                     {type: "EVENT", pattern: "PUSH"},
@@ -402,14 +493,19 @@ upsert_project() {
                 fi
 
                 # Day-1 first run: start a build with the current git SHA
-                local git_sha
-                git_sha=$(git rev-parse HEAD 2>/dev/null || echo "main")
-                echo "Starting Day-1 build at SHA: $git_sha"
+                # Gated by SKIP_DAY1_BUILD — ephemeral provider owns StartBuild for RC/MC
+                if [ "${SKIP_DAY1_BUILD:-false}" != "true" ]; then
+                    local git_sha
+                    git_sha=$(git rev-parse HEAD 2>/dev/null || echo "main")
+                    echo "Starting Day-1 build at SHA: $git_sha"
 
-                if aws codebuild start-build --project-name "$project_name" --source-version "$git_sha" --no-cli-pager >/dev/null; then
-                    echo "✓ Day-1 build started"
+                    if aws codebuild start-build --project-name "$project_name" --source-version "$git_sha" --no-cli-pager >/dev/null; then
+                        echo "✓ Day-1 build started"
+                    else
+                        echo "WARNING: Failed to start Day-1 build (non-fatal)" >&2
+                    fi
                 else
-                    echo "WARNING: Failed to start Day-1 build (non-fatal)" >&2
+                    echo "SKIP_DAY1_BUILD=true — skipping Day-1 StartBuild (provider will trigger)"
                 fi
             else
                 echo "ERROR: Failed to create project $project_name" >&2
@@ -455,13 +551,13 @@ if [[ -z "$ENVIRONMENT" || ! "$ENVIRONMENT" =~ ^[A-Za-z0-9._-]+$ ]]; then
     exit 1
 fi
 
-# Fail-closed image check (once, before any create/update)
-verify_platform_image_exists "$PLATFORM_IMAGE"
+# Ensure platform image exists (builds if missing, once before any create/update)
+ensure_platform_image "$PLATFORM_IMAGE"
 
 # Detect TF state region
 TF_STATE_REGION=""
 if [ -d "deploy/${ENVIRONMENT}" ]; then
-    FIRST_REGIONAL_JSON=$(find "deploy/${ENVIRONMENT}" -name "regional-cluster.json" -path "*/pipeline-provisioner-inputs/*" -type f | head -n 1)
+    FIRST_REGIONAL_JSON=$(find "deploy/${ENVIRONMENT}" -name "regional-cluster.json" -path "*/codebuild-provisioner-inputs/*" -type f | head -n 1)
     if [ -n "$FIRST_REGIONAL_JSON" ]; then
         TF_STATE_REGION=$(jq -r '.tf_state_region // empty' "$FIRST_REGIONAL_JSON" 2>/dev/null || echo "")
     fi
@@ -489,7 +585,7 @@ ENVIRONMENT_HOSTED_ZONE_ID=""
 
 for _first_region_dir in deploy/${ENVIRONMENT}/*/; do
     [ -d "$_first_region_dir" ] || continue
-    _prov_tf="${_first_region_dir}pipeline-provisioner-inputs/terraform.json"
+    _prov_tf="${_first_region_dir}codebuild-provisioner-inputs/terraform.json"
     if [ -f "$_prov_tf" ]; then
         ENVIRONMENT_DOMAIN=$(jq -r '.domain // empty' "$_prov_tf" 2>/dev/null || echo "")
         CREATE_ENVIRONMENT_ZONE=$(jq -r '.create_environment_zone // "false"' "$_prov_tf" 2>/dev/null || echo "false")
@@ -559,8 +655,8 @@ for region_dir in deploy/${ENVIRONMENT}/*/; do
     echo "Processing: $ENVIRONMENT / $REGION_DEPLOYMENT"
 
     # ── Regional Cluster ──────────────────────────────────────────────────────
-    if [ -f "${region_dir}pipeline-provisioner-inputs/regional-cluster.json" ]; then
-        REGIONAL_CONFIG="${region_dir}pipeline-provisioner-inputs/regional-cluster.json"
+    if [ -f "${region_dir}codebuild-provisioner-inputs/regional-cluster.json" ]; then
+        REGIONAL_CONFIG="${region_dir}codebuild-provisioner-inputs/regional-cluster.json"
 
         AWS_REGION=$(jq -r '.region // .target_region // "us-east-1"' "$REGIONAL_CONFIG")
         TARGET_ACCOUNT_ID=$(jq -r '.account_id // ""' "$REGIONAL_CONFIG")
@@ -575,7 +671,7 @@ for region_dir in deploy/${ENVIRONMENT}/*/; do
             exit 1
         fi
 
-        DELETE_FLAG=$(jq -r '.delete_pipeline // false' "$REGIONAL_CONFIG")
+        DELETE_FLAG=$(jq -r '.delete_codebuild // false' "$REGIONAL_CONFIG")
         [ "$FORCE_DELETE_ALL_PIPELINES" == "true" ] && DELETE_FLAG="true"
 
         if [[ -z "$TARGET_ACCOUNT_ID" ]]; then
@@ -590,7 +686,7 @@ for region_dir in deploy/${ENVIRONMENT}/*/; do
             delete_project "$REGIONAL_ID"
         else
             if ! upsert_project "regional" "$REGIONAL_ID" "$RC_CODEBUILD_ROLE_ARN" \
-                "terraform/config/pipeline-regional-cluster/buildspec-combined.yml" 90; then
+                "terraform/config/codebuild-regional-cluster/buildspec-combined.yml" 90; then
                 echo "ERROR: Regional project upsert failed for ${REGIONAL_ID}" >&2
                 PROVISION_FAILURES=$((PROVISION_FAILURES + 1))
             fi
@@ -599,10 +695,10 @@ for region_dir in deploy/${ENVIRONMENT}/*/; do
 
     # ── Management Clusters ───────────────────────────────────────────────────
     shopt -s nullglob
-    _mc_configs=(${region_dir}pipeline-provisioner-inputs/management-cluster-*.json)
+    _mc_configs=(${region_dir}codebuild-provisioner-inputs/management-cluster-*.json)
     shopt -u nullglob
     if [ ${#_mc_configs[@]} -gt 0 ]; then
-        for mc_config in ${region_dir}pipeline-provisioner-inputs/management-cluster-*.json; do
+        for mc_config in ${region_dir}codebuild-provisioner-inputs/management-cluster-*.json; do
             [ -e "$mc_config" ] || continue
 
             _mc_basename=$(basename "$mc_config" .json)
@@ -621,7 +717,7 @@ for region_dir in deploy/${ENVIRONMENT}/*/; do
                 exit 1
             fi
 
-            DELETE_FLAG=$(jq -r '.delete_pipeline // false' "$mc_config")
+            DELETE_FLAG=$(jq -r '.delete_codebuild // false' "$mc_config")
             [ "$FORCE_DELETE_ALL_PIPELINES" == "true" ] && DELETE_FLAG="true"
 
             if [[ -z "$TARGET_ACCOUNT_ID" ]]; then
@@ -636,7 +732,7 @@ for region_dir in deploy/${ENVIRONMENT}/*/; do
                 delete_project "$MANAGEMENT_ID"
             else
                 if ! upsert_project "management" "$MANAGEMENT_ID" "$MC_CODEBUILD_ROLE_ARN" \
-                    "terraform/config/pipeline-management-cluster/buildspec-combined.yml" 120; then
+                    "terraform/config/codebuild-management-cluster/buildspec-combined.yml" 120; then
                     echo "ERROR: Management project upsert failed for ${MANAGEMENT_ID}" >&2
                     PROVISION_FAILURES=$((PROVISION_FAILURES + 1))
                 fi

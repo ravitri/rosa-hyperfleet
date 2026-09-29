@@ -36,29 +36,28 @@ module "platform_image" {
   }
 }
 
-module "pipeline_provisioner" {
-  source = "../../modules/pipeline-provisioner"
+module "codebuild_provisioner" {
+  source = "../../modules/codebuild-provisioner"
 
   github_repository     = var.github_repository
   github_branch         = var.github_branch
   region                = var.region
   environment           = var.environment
   github_connection_arn = aws_codestarconnections_connection.github.arn
-  codebuild_image       = module.platform_image.container_image
   platform_ecr_repo     = module.platform_image.ecr_repository_url
   name_prefix           = var.name_prefix
-  rc_codebuild_role_arn = aws_iam_role.rc_codebuild_role.arn
-  mc_codebuild_role_arn = aws_iam_role.mc_codebuild_role.arn
 }
 
 # CodeBuild Failure Notifications
 # Gated by an explicit feature flag (see var.enable_slack_notifications).
-module "pipeline_notifications" {
-  source = "../../modules/pipeline-notifications"
+# Currently only monitors the build-platform-image project.
+# RC/MC notifications are SDK-side (out of scope for this module).
+module "codebuild_notifications" {
+  source = "../../modules/codebuild-notifications"
   count  = var.enable_slack_notifications ? 1 : 0
 
   slack_webhook_ssm_param = var.slack_webhook_ssm_param
   name_prefix             = var.name_prefix
   region                  = var.region
-  project_names           = [module.pipeline_provisioner.provisioner_project_name]
+  project_names           = [module.codebuild_provisioner.build_platform_image_project_name]
 }
