@@ -10,6 +10,17 @@ provider "aws" {
 data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}
 
+locals {
+  # When name_prefix is set (e.g., "eph-199b4083"), resource names become "eph-199b4083-build-platform-image", etc.
+  name_prefix = var.name_prefix != "" ? "${var.name_prefix}-" : ""
+
+  # IAM role prefix is separately configurable. Defaults to name_prefix for backward compatibility.
+  # Ephemeral: "eph-{id}-" → roles like "eph-199b4083-rc-codebuild-role"
+  # Standing: "" → unprefixed roles like "rc-codebuild-role"
+  # Can be overridden via iam_role_prefix variable (e.g., "int-" for integration)
+  iam_role_prefix = var.iam_role_prefix != null ? (var.iam_role_prefix != "" ? "${var.iam_role_prefix}-" : "") : local.name_prefix
+}
+
 # Shared GitHub CodeStar Connection
 # The bootstrap script creates the connection (if needed) and waits for it to
 # be authorized, then imports it here so terraform tracks it in state.

@@ -6,7 +6,7 @@
 data "aws_caller_identity" "rc_shared" {}
 
 resource "aws_iam_role" "rc_codebuild_role" {
-  name = "rc-codebuild-role"
+  name = "${local.iam_role_prefix}rc-codebuild-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
