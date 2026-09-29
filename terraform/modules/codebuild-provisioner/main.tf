@@ -47,7 +47,7 @@ resource "aws_codebuild_project" "build_platform_image" {
     type            = "GITHUB"
     location        = "https://github.com/${var.github_repository}.git"
     git_clone_depth = 0 # Full history for check-queue.sh git merge-base
-    buildspec       = "terraform/modules/pipeline-provisioner/buildspec-build-image.yml"
+    buildspec       = "terraform/modules/codebuild-provisioner/buildspec-build-image.yml"
 
     git_submodules_config {
       fetch_submodules = false
