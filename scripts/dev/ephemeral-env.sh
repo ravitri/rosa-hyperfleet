@@ -409,6 +409,7 @@ cmd_provision() {
     $CONTAINER_ENGINE run --rm \
         $_CONTAINER_AWS_FLAGS \
         -e "GITHUB_TOKEN=$GITHUB_TOKEN" \
+        -e "GITHUB_CONNECTION_ARN=${GITHUB_CONNECTION_ARN:-}" \
         $OVERRIDE_MOUNT \
         -v "${REPO_ROOT}:/workspace:ro,z" \
         -v "${tmpdir}:/output:z" \
