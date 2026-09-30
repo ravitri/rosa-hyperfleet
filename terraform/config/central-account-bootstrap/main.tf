@@ -22,8 +22,8 @@ locals {
 }
 
 # Shared GitHub CodeStar Connection
-# The bootstrap script creates the connection (if needed) and waits for it to
-# be authorized, then imports it here so terraform tracks it in state.
+# The bootstrap script locates the pre-existing connection and imports it here
+# so Terraform can reference the selected ARN without creating a replacement.
 # During teardown, `terraform state rm` removes it before destroy so the
 # connection persists across CI runs.
 resource "aws_codestarconnections_connection" "github" {
