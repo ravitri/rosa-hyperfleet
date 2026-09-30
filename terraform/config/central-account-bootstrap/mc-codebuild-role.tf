@@ -49,6 +49,16 @@ resource "aws_iam_role_policy" "mc_codebuild_policy" {
         ]
       },
       {
+        Sid    = "GitHubConnectionAccess"
+        Effect = "Allow"
+        Action = [
+          "codestar-connections:GetConnection",
+          "codestar-connections:GetConnectionToken",
+          "codestar-connections:UseConnection"
+        ]
+        Resource = aws_codestarconnections_connection.github.arn
+      },
+      {
         Effect = "Allow"
         Action = [
           "s3:GetObject",

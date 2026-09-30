@@ -42,6 +42,16 @@ resource "aws_iam_role_policy" "rc_codebuild_policy" {
         ]
       },
       {
+        Sid    = "GitHubConnectionAccess"
+        Effect = "Allow"
+        Action = [
+          "codestar-connections:GetConnection",
+          "codestar-connections:GetConnectionToken",
+          "codestar-connections:UseConnection"
+        ]
+        Resource = aws_codestarconnections_connection.github.arn
+      },
+      {
         Sid    = "CheckQueueSelfScope"
         Effect = "Allow"
         Action = [

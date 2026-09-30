@@ -19,8 +19,17 @@ data "aws_codestarconnections_connection" "github" {
   arn = var.github_connection_arn
 }
 
+resource "time_sleep" "iam_propagation" {
+  create_duration = "30s"
+
+  depends_on = [
+    aws_iam_role_policy.build_platform_image_policy
+  ]
+}
+
 # CodeBuild Project - Build Platform Image
 resource "aws_codebuild_project" "build_platform_image" {
+  depends_on             = [time_sleep.iam_propagation]
   name                   = "${local.name_prefix}build-platform-image"
   service_role           = aws_iam_role.build_platform_image_role.arn
   build_timeout          = 30
@@ -97,4 +106,3 @@ resource "aws_codebuild_webhook" "build_platform_image" {
     }
   }
 }
-
