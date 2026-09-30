@@ -52,6 +52,16 @@ resource "aws_iam_role_policy" "build_platform_image_policy" {
           "sts:GetServiceBearerToken"
         ]
         Resource = "*"
+      },
+      {
+        Sid    = "GitHubConnectionAccess"
+        Effect = "Allow"
+        Action = [
+          "codestar-connections:GetConnection",
+          "codestar-connections:GetConnectionToken",
+          "codestar-connections:UseConnection"
+        ]
+        Resource = var.github_connection_arn
       }
     ]
   })

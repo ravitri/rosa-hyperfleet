@@ -47,3 +47,7 @@ ephemeral-logs*
 # Dashboard (generated locally by ./dashboard/fetch-data.sh)
 dashboard/data.json
 tmp/
+
+# Codex
+.agents/
+.codex/
