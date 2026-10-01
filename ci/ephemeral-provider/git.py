@@ -39,7 +39,7 @@ class GitManager:
 
     def _github_token(self) -> str:
         """Read the git token from credentials directory or environment."""
-        env_token = os.environ.get("GITHUB_TOKEN")
+        env_token = os.environ.get("HYPERFLEET_CI_GITHUB_TOKEN")
         if env_token:
             return env_token
         return (self.creds_dir / "github_token").read_text().strip()
