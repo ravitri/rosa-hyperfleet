@@ -513,10 +513,14 @@ cmd_provision_resume() {
 
     update_state "$BUILD_ID" "provisioning"
 
-    local tmpdir
+    local tmpdir artifacts_dir
     tmpdir=$(mktemp -d)
+    artifacts_dir="${ARTIFACTS_DIR:-${ARTIFACT_DIR:-${REPO_ROOT}/.ephemeral-artifacts/${BUILD_ID}}}"
+    mkdir -p "$artifacts_dir"
     _prev_trap=$(trap -p EXIT | sed "s/^trap -- '//;s/' EXIT$//")
     trap 'rm -rf "${tmpdir:-}"; eval "$_prev_trap"' EXIT
+
+    echo "  ARTIFACTS_DIR:     $artifacts_dir"
 
     local rc=0
     # shellcheck disable=SC2086
@@ -526,8 +530,10 @@ cmd_provision_resume() {
         -e "GITHUB_CONNECTION_ARN=${GITHUB_CONNECTION_ARN:-}" \
         -v "${REPO_ROOT}:/workspace:ro,z" \
         -v "${tmpdir}:/output:z" \
+        -v "${artifacts_dir}:/artifacts:z" \
         -w /workspace \
         -e WORKSPACE_DIR=/workspace \
+        -e ARTIFACT_DIR=/artifacts \
         "$CI_IMAGE" \
         uv run --no-cache ci/ephemeral-provider/main.py \
             --resume \
@@ -571,6 +577,7 @@ cmd_provision_resume() {
     else
         update_state "$BUILD_ID" "provisioning-failed"
         echo "Resume failed. State updated to provisioning-failed."
+        echo "CodeBuild logs (if captured): $artifacts_dir"
         exit $rc
     fi
 }
