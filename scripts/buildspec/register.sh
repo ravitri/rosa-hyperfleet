@@ -22,7 +22,7 @@ echo "Registering MC ${CLUSTER_ID} with RC API"
 # Read API Gateway URL and CloudFront domain from RC terraform state
 RESOLVED_REGIONAL_ACCOUNT_ID="${REGIONAL_AWS_ACCOUNT_ID}"
 
-RC_CONFIG_FILE="deploy/${ENVIRONMENT}/${TARGET_REGION}/pipeline-regional-cluster-inputs/terraform.json"
+RC_CONFIG_FILE=$(config_path_for_mode regional)
 if [ ! -f "$RC_CONFIG_FILE" ]; then
     echo "ERROR: RC config not found: $RC_CONFIG_FILE" >&2
     exit 1
