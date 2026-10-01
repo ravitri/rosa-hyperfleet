@@ -123,6 +123,42 @@ class EphemeralEnvOrchestrator:
         if save_mc_state:
             self._save_mc_terraform_outputs(git, save_mc_state)
 
+    def resume(self, save_rc_state: str | None = None, save_mc_state: str | None = None):
+        """Resume provisioning from an existing ephemeral branch.
+
+        This retries the bootstrap and CodeBuild stages without creating a new
+        branch, rendering new configuration, or appending another environment
+        commit. Existing Terraform state and CodeBuild projects are reused.
+        """
+        git = GitManager(
+            self.creds_dir,
+            self.repo,
+            self.branch,
+            eph_branch_name=self.eph_branch_name,
+        )
+        self.git = git
+        git.checkout_eph_branch(self.eph_prefix)
+
+        env_config_dir = git.work_dir / "config" / TARGET_ENVIRONMENT
+        self.region = discover_region(env_config_dir)
+        log.info("Region (from ephemeral branch): %s", self.region)
+
+        self._setup_aws()
+        self.central_monitor = BuildMonitor(self.aws.session)
+        self.target_monitor = BuildMonitor(self.aws.target_session)
+
+        desired_sha = git.current_sha()
+        log.info("Resuming provisioning at existing commit: %s", desired_sha)
+
+        self._bootstrap_provisioner(git)
+        self._read_project_names(git)
+        self._wait_for_provision(desired_sha)
+
+        if save_rc_state:
+            self._save_terraform_outputs(git, save_rc_state)
+        if save_mc_state:
+            self._save_mc_terraform_outputs(git, save_mc_state)
+
     def teardown(self, fire_and_forget: bool = False):
         """Tear down a previously provisioned ephemeral environment.
 

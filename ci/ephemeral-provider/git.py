@@ -79,6 +79,10 @@ class GitManager:
             )
         return result
 
+    def current_sha(self) -> str:
+        """Return the checked-out commit SHA."""
+        return self._run_git("rev-parse", "HEAD").stdout.strip()
+
     def _resolve_fork_owner(self, token: str) -> str:
         """Get the GitHub username associated with the git token."""
         import urllib.request
