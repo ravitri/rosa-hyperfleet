@@ -309,7 +309,7 @@ generate_project_spec() {
                     resource: $github_conn_arn
                 }
             },
-            buildTimeout: $timeout,
+            timeoutInMinutes: $timeout,
             concurrentBuildLimit: 1
         }'
 }
