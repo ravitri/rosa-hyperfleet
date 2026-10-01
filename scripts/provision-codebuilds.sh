@@ -6,7 +6,7 @@
 #   ENVIRONMENT          - Target environment (e.g., staging, production)
 #   GITHUB_REPOSITORY    - GitHub repository in owner/name format
 #   GITHUB_BRANCH        - GitHub branch to track
-#   GITHUB_CONNECTION_ARN - CodeStar connection ARN
+#   GITHUB_CONNECTION_ARN - resolved CodeStar connection ARN from bootstrap
 #   PLATFORM_IMAGE       - Platform container image URI
 #   RC_CODEBUILD_ROLE_ARN - ARN of the centrally-managed RC CodeBuild role
 #   MC_CODEBUILD_ROLE_ARN - ARN of the shared MC CodeBuild role

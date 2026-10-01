@@ -410,7 +410,6 @@ cmd_provision() {
     $CONTAINER_ENGINE run --rm \
         $_CONTAINER_AWS_FLAGS \
         -e "HYPERFLEET_CI_GITHUB_TOKEN=$HYPERFLEET_CI_GITHUB_TOKEN" \
-        -e "GITHUB_CONNECTION_ARN=${GITHUB_CONNECTION_ARN:-}" \
         $OVERRIDE_MOUNT \
         -v "${REPO_ROOT}:/workspace:ro,z" \
         -v "${tmpdir}:/output:z" \
@@ -499,6 +498,7 @@ cmd_provision_resume() {
     [[ -n "$branch" ]] || die "Environment $BUILD_ID has no BRANCH field."
     [[ -n "$eph_branch" ]] || eph_branch=$(derive_eph_branch "$BUILD_ID" "$branch")
 
+    setup_override_mount
     setup_aws_config
     fetch_github_token
     write_eph_container_config
@@ -523,11 +523,22 @@ cmd_provision_resume() {
     echo "  ARTIFACTS_DIR:     $artifacts_dir"
 
     local rc=0
+    local resync_arg=()
+    case "${RESYNC:-true}" in
+        true|1|yes|TRUE|YES)
+            resync_arg=(--resync-before-resume)
+            ;;
+        false|0|no|FALSE|NO)
+            ;;
+        *)
+            die "RESYNC must be true or false (got: ${RESYNC})"
+            ;;
+    esac
     # shellcheck disable=SC2086
     $CONTAINER_ENGINE run --rm \
         $_CONTAINER_AWS_FLAGS \
         -e "HYPERFLEET_CI_GITHUB_TOKEN=$HYPERFLEET_CI_GITHUB_TOKEN" \
-        -e "GITHUB_CONNECTION_ARN=${GITHUB_CONNECTION_ARN:-}" \
+        $OVERRIDE_MOUNT \
         -v "${REPO_ROOT}:/workspace:ro,z" \
         -v "${tmpdir}:/output:z" \
         -v "${artifacts_dir}:/artifacts:z" \
@@ -537,6 +548,7 @@ cmd_provision_resume() {
         "$CI_IMAGE" \
         uv run --no-cache ci/ephemeral-provider/main.py \
             --resume \
+            "${resync_arg[@]}" \
             --id "$BUILD_ID" \
             --repo "$repo" --branch "$branch" \
             --eph-branch "$eph_branch" \

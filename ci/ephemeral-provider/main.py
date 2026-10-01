@@ -83,6 +83,11 @@ def main():
         help="Resume provisioning using an existing ephemeral branch",
     )
     parser.add_argument(
+        "--resync-before-resume",
+        action="store_true",
+        help="Resync the existing ephemeral branch before resuming provisioning",
+    )
+    parser.add_argument(
         "--id",
         default=None,
         dest="env_id",
@@ -137,6 +142,9 @@ def main():
         help="Save MC terraform outputs (JSON) to PATH after provisioning",
     )
     args = parser.parse_args()
+
+    if args.resync_before_resume and not args.resume:
+        parser.error("--resync-before-resume requires --resume")
 
     # Normalize repo format (strip github.com prefix and .git suffix if present)
     repo = re.sub(r".*github\.com/", "", args.repo)
@@ -205,6 +213,7 @@ def main():
             env.resume(
                 save_rc_state=args.save_regional_state,
                 save_mc_state=args.save_management_state,
+                resync_before_resume=args.resync_before_resume,
             )
             if args.save_regional_state:
                 region_file = Path(args.save_regional_state).parent / "region"

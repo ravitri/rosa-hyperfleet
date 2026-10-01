@@ -216,11 +216,10 @@ BRANCH ?= $(shell git rev-parse --abbrev-ref HEAD)
 
 ephemeral-provision: ## Provision an ephemeral environment
 	@ID="$(ID)" REPO="$(REPO)" BRANCH="$(if $(filter command line,$(origin BRANCH)),$(BRANCH),)" \
-		GITHUB_CONNECTION_ARN="$(GITHUB_CONNECTION_ARN)" \
 		./scripts/dev/ephemeral-env.sh provision
 
-ephemeral-provision-resume: ## Resume a failed ephemeral provisioning run
-	@ID="$(ID)" GITHUB_CONNECTION_ARN="$(GITHUB_CONNECTION_ARN)" \
+ephemeral-provision-resume: ## Resync and resume a failed ephemeral provisioning run (RESYNC=false to skip resync)
+	@ID="$(ID)" RESYNC="$(if $(RESYNC),$(RESYNC),true)" \
 		./scripts/dev/ephemeral-env.sh provision-resume
 
 ephemeral-teardown: ## Tear down an ephemeral environment
