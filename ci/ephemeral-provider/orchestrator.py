@@ -355,13 +355,6 @@ class EphemeralEnvOrchestrator:
                 f"Region config {region_file.name} must define 'provision_mcs'. "
                 "Example:\n  provision_mcs:\n    mc01: {}"
             )
-        mc_count = len(region_config["provision_mcs"])
-        if mc_count > 1:
-            raise ValueError(
-                f"Ephemeral environments support at most 1 management cluster "
-                f"(only 1 MC account available), but {mc_count} were defined in "
-                f"{region_file.name}: {list(region_config['provision_mcs'].keys())}"
-            )
 
         # Reject lifecycle flags that are managed by the provisioner
         for forbidden in ("delete", "delete_codebuild"):
@@ -537,6 +530,9 @@ class EphemeralEnvOrchestrator:
 
         log.info("Started %d build(s) at SHA %s", len(builds), desired_sha[:7])
 
+        if not builds:
+            raise RuntimeError("No CodeBuild projects were selected for provisioning.")
+
         # Wait for all builds concurrently
         log.info("")
         log.info("==========================================")
@@ -607,6 +603,7 @@ class EphemeralEnvOrchestrator:
         log.info("Provision: Build Summary")
         log.info("==========================================")
 
+        rows = []
         for project_name, build_id in builds:
             result = results.get(
                 project_name,
@@ -618,16 +615,32 @@ class EphemeralEnvOrchestrator:
                 ),
             )
             outcome = "SUCCEEDED" if result.error is None else "FAILED"
-            log.info(
-                "Build report: project=%s build=%s outcome=%s codebuild_status=%s duration=%s",
-                project_name,
-                result.build_id,
-                outcome,
-                result.status,
-                self.target_monitor._format_duration(result.total_duration),
+            detail = result.error or "APPLIED=true"
+            detail = " ".join(detail.split())
+            if len(detail) > 110:
+                detail = f"{detail[:107]}..."
+            short_build_id = result.build_id.rsplit(":", 1)[-1][:8]
+            rows.append(
+                (
+                    project_name,
+                    outcome,
+                    result.status,
+                    self.target_monitor._format_duration(result.total_duration),
+                    short_build_id,
+                    detail,
+                )
             )
-            if result.error:
-                log.info("Build report: project=%s issue=%s", project_name, result.error)
+
+        log.info("Build report table:")
+        log.info("%-32s %-8s %-10s %-10s %-8s %s", "PROJECT", "OUTCOME", "STATUS", "DURATION", "BUILD", "DETAIL")
+        log.info("%-32s %-8s %-10s %-10s %-8s %s", "-------", "-------", "------", "--------", "-----", "------")
+        for row in rows:
+            log.info("%-32s %-8s %-10s %-10s %-8s %s", *row)
+
+        for project_name, build_id in builds:
+            result = results.get(project_name)
+            if result is None:
+                continue
             if result.log_url:
                 log.info("Build report: project=%s CloudWatch=%s", project_name, result.log_url)
 
@@ -712,8 +725,9 @@ class EphemeralEnvOrchestrator:
         management_account_id = self.aws.get_target_account_id("management")
         state_bucket = f"terraform-state-{management_account_id}-{self.region}"
 
-        # MC management_id follows the pattern: {eph_prefix}-{mc_key}
-        # Ephemeral envs support at most 1 MC, so we use the first key from provision_mcs.
+        # MC management_id follows the pattern: {eph_prefix}-{mc_key}.
+        # The current state-file interface stores one MC output file, so retain
+        # the default MC01 behavior until per-MC state output is introduced.
         region_file = git.work_dir / "config" / TARGET_ENVIRONMENT / f"{self.region}.yaml"
         with open(region_file) as f:
             region_config = yaml.safe_load(f) or {}
