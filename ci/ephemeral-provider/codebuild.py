@@ -124,7 +124,8 @@ class BuildMonitor:
         """Wait for a CodeBuild build to complete and verify the success contract.
 
         Gates on: buildStatus=SUCCEEDED && APPLIED=="true" && APPLIED_SHA==desired_sha.
-        Ignores: skip builds (APPLIED!="true") and STOPPED builds (superseded).
+        Rejects skip builds (APPLIED!="true") and STOPPED builds because the
+        requested SHA was not applied by that build.
 
         Args:
             build_id: CodeBuild build ID (returned by start_build).
@@ -154,7 +155,13 @@ class BuildMonitor:
                 resolved_sha = build.get("resolvedSourceVersion", "")
 
                 # Sanity check: resolved SHA must match desired SHA
-                if resolved_sha and resolved_sha != desired_sha:
+                if not resolved_sha:
+                    raise RuntimeError(
+                        f"Build {build_id} did not report resolvedSourceVersion; "
+                        "cannot verify the requested SHA."
+                    )
+
+                if resolved_sha != desired_sha:
                     raise RuntimeError(
                         f"Build {build_id} resolved to SHA {resolved_sha[:7]}, "
                         f"expected {desired_sha[:7]}. This should not happen when "
@@ -168,20 +175,23 @@ class BuildMonitor:
 
                 # Terminal statuses
                 if status == "SUCCEEDED":
-                    # Check the success contract: APPLIED=="true" && APPLIED_SHA==desired_sha
+                    # Check the success contract: APPLIED=="true" && APPLIED_SHA==desired_sha.
+                    # A skipped build is not a successful provisioning result.
                     applied = self._exported_var(build, "APPLIED")
                     applied_sha = self._exported_var(build, "APPLIED_SHA")
 
                     if applied != "true":
                         raise RuntimeError(
-                            f"Build {build_id} succeeded but APPLIED={applied} (not 'true'). "
-                            "This indicates a skip build (check-queue.sh exit-0) — should "
-                            "not happen when we StartBuild the newest SHA."
+                            f"Build {build_id} succeeded but APPLIED={applied!r} (not 'true'). "
+                            "The CodeBuild success contract was not satisfied; the build "
+                            "may have been skipped by check-queue.sh or failed to export "
+                            "its status variables."
                         )
 
                     if applied_sha != desired_sha:
+                        applied_sha_display = (applied_sha or "")[:7]
                         raise RuntimeError(
-                            f"Build {build_id} succeeded but APPLIED_SHA={applied_sha[:7]}, "
+                            f"Build {build_id} succeeded but APPLIED_SHA={applied_sha_display!r}, "
                             f"expected {desired_sha[:7]}. State mismatch."
                         )
 
