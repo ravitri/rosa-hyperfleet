@@ -118,6 +118,96 @@ class BuildMonitor:
 
         return self.start_build(project_name, source_version)
 
+    @staticmethod
+    def _timestamp_seconds(value) -> float | None:
+        """Return an AWS timestamp as seconds, when one is available."""
+        if value is None:
+            return None
+        if hasattr(value, "timestamp"):
+            return value.timestamp()
+        if isinstance(value, (int, float)):
+            return float(value)
+        return None
+
+    @classmethod
+    def _phase_duration(cls, phase: dict) -> float | None:
+        """Calculate a CodeBuild phase duration from its AWS timestamps."""
+        start = cls._timestamp_seconds(phase.get("startTime"))
+        if start is None:
+            return None
+        end = cls._timestamp_seconds(phase.get("endTime")) or time.time()
+        return max(0.0, end - start)
+
+    @staticmethod
+    def _format_duration(seconds: float | None) -> str:
+        if seconds is None:
+            return "unknown"
+        seconds = max(0, int(round(seconds)))
+        minutes, remainder = divmod(seconds, 60)
+        hours, minutes = divmod(minutes, 60)
+        if hours:
+            return f"{hours}h {minutes}m {remainder}s"
+        if minutes:
+            return f"{minutes}m {remainder}s"
+        return f"{remainder}s"
+
+    def _log_phase_updates(self, build: dict, phase_states: dict[str, str]) -> None:
+        """Log each CodeBuild phase when its status changes."""
+        build_id = build.get("id", "unknown")
+        current_phase = build.get("currentPhase")
+        for phase in build.get("phases") or []:
+            phase_type = phase.get("phaseType")
+            if not phase_type:
+                continue
+
+            phase_status = phase.get("phaseStatus")
+            if not phase_status and phase_type == current_phase:
+                phase_status = "IN_PROGRESS"
+            if not phase_status or phase_states.get(phase_type) == phase_status:
+                continue
+
+            phase_states[phase_type] = phase_status
+            log.info(
+                "Build %s phase %s: %s (duration: %s)",
+                build_id,
+                phase_type,
+                phase_status,
+                self._format_duration(self._phase_duration(phase)),
+            )
+
+    def _log_build_summary(self, build: dict, monitor_start: float) -> None:
+        """Log total build time and each CodeBuild phase duration."""
+        build_id = build.get("id", "unknown")
+        start = self._timestamp_seconds(build.get("startTime"))
+        end = self._timestamp_seconds(build.get("endTime"))
+        total_duration = (
+            max(0.0, (end or time.time()) - start)
+            if start is not None
+            else time.monotonic() - monitor_start
+        )
+        log.info(
+            "Build %s summary: status=%s, total duration=%s",
+            build_id,
+            build.get("buildStatus", "UNKNOWN"),
+            self._format_duration(total_duration),
+        )
+
+        for phase in build.get("phases") or []:
+            phase_type = phase.get("phaseType")
+            if not phase_type:
+                continue
+            log.info(
+                "Build %s summary: phase=%s, status=%s, duration=%s",
+                build_id,
+                phase_type,
+                phase.get("phaseStatus", "UNKNOWN"),
+                self._format_duration(self._phase_duration(phase)),
+            )
+
+        deep_link = (build.get("logs") or {}).get("deepLink")
+        if deep_link:
+            log.info("Build %s CloudWatch logs: %s", build_id, deep_link)
+
     def wait_for_build(
         self,
         build_id: str,
@@ -146,8 +236,10 @@ class BuildMonitor:
             desired_sha[:7],
             timeout,
         )
-        start_time = time.time()
-        while time.time() - start_time < timeout:
+        monitor_start = time.monotonic()
+        phase_states: dict[str, str] = {}
+        status = "UNKNOWN"
+        while time.monotonic() - monitor_start < timeout:
             try:
                 response = self.client.batch_get_builds(ids=[build_id])
                 builds = response.get("builds", [])
@@ -158,6 +250,7 @@ class BuildMonitor:
                 status = build.get("buildStatus")
                 source_sha = build.get("sourceVersion", "")
                 resolved_sha = build.get("resolvedSourceVersion", "")
+                self._log_phase_updates(build, phase_states)
 
                 # sourceVersion is the requested version and is available before the
                 # source download. It lets us reject an unexpected build early without
@@ -177,6 +270,7 @@ class BuildMonitor:
 
                 # Terminal statuses
                 if status == "SUCCEEDED":
+                    self._log_build_summary(build, monitor_start)
                     # For GitHub/CodeConnections, the resolved commit is available
                     # once the build reaches a terminal state.
                     if not resolved_sha:
@@ -220,6 +314,7 @@ class BuildMonitor:
                     return
 
                 elif status == "STOPPED":
+                    self._log_build_summary(build, monitor_start)
                     # Superseded by a newer build (check-queue.sh dedup)
                     raise RuntimeError(
                         f"Build {build_id} was STOPPED (superseded by a newer build). "
@@ -227,6 +322,7 @@ class BuildMonitor:
                     )
 
                 elif status in ("FAILED", "TIMED_OUT", "FAULT"):
+                    self._log_build_summary(build, monitor_start)
                     raise RuntimeError(
                         f"Build {build_id} failed with status {status}. "
                         "Check CloudWatch logs for details."

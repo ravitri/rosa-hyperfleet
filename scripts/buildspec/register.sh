@@ -19,6 +19,21 @@ fi
 
 echo "Registering MC ${CLUSTER_ID} with RC API"
 
+_log_step_start() {
+    _STEP_NAME="$1"
+    _STEP_START=$SECONDS
+    echo "provision-step: START ${_STEP_NAME}"
+}
+
+_log_step_success() {
+    echo "provision-step: SUCCEEDED ${_STEP_NAME} duration=$((SECONDS - _STEP_START))s"
+}
+
+_log_step_failure() {
+    local _exit_code="$1"
+    echo "provision-step: FAILED ${_STEP_NAME} duration=$((SECONDS - _STEP_START))s exit_code=${_exit_code}" >&2
+}
+
 # Read API Gateway URL and CloudFront domain from RC terraform state
 RESOLVED_REGIONAL_ACCOUNT_ID="${REGIONAL_AWS_ACCOUNT_ID}"
 
@@ -44,6 +59,7 @@ RC_STATE_KEY="regional-cluster/${RC_REGIONAL_ID}.tfstate"
 )
 
 # RC and MC pipelines run in parallel — retry until outputs appear (up to 45 min)
+_log_step_start "MC API Gateway output discovery"
 _REG_MAX_RETRIES=90
 _REG_RETRY_DELAY=30
 _REG_RETRY_COUNT=0
@@ -60,9 +76,11 @@ while [ $_REG_RETRY_COUNT -lt $_REG_MAX_RETRIES ]; do
 done
 
 if [ -z "$API_GATEWAY_URL" ]; then
+    _log_step_failure 1
     echo "ERROR: api_gateway_invoke_url not available after $((_REG_MAX_RETRIES * _REG_RETRY_DELAY / 60))+ minutes" >&2
     exit 1
 fi
+_log_step_success
 
 # Wait for API Gateway /live endpoint. RC ArgoCD can still be syncing after
 # Terraform and bootstrap complete, so allow up to 30 minutes by default.
@@ -74,6 +92,7 @@ if ! [[ "$LIVE_MAX_RETRIES" =~ ^[1-9][0-9]*$ ]] || \
     echo "ERROR: MC_LIVE_MAX_RETRIES must be positive and MC_LIVE_RETRY_DELAY must be non-negative" >&2
     exit 1
 fi
+_log_step_start "MC API live readiness"
 RETRY_COUNT=0
 LIVE_OK=false
 
@@ -91,7 +110,7 @@ while [ $RETRY_COUNT -lt "$LIVE_MAX_RETRIES" ]; do
         --aws-sigv4 "aws:amz:${TARGET_REGION}:execute-api" \
         --user "${AWS_ACCESS_KEY_ID}:${AWS_SECRET_ACCESS_KEY}" \
         "${SECURITY_TOKEN_HEADER[@]}" \
-        -X GET "$API_GATEWAY_URL/api/v0/live")
+        -X GET "$API_GATEWAY_URL/v0/live")
 
     if [ "$HTTP_CODE" = "200" ]; then
         LIVE_OK=true
@@ -103,9 +122,11 @@ done
 set -e
 
 if [ "$LIVE_OK" != "true" ]; then
+    _log_step_failure 1
     echo "ERROR: /live did not return 200 after $LIVE_MAX_RETRIES attempts" >&2
     exit 1
 fi
+_log_step_success
 
 # Register management cluster
 REGISTER_URL="${API_GATEWAY_URL}/api/v0/management_clusters"
@@ -119,6 +140,7 @@ EOJSON
 )
 
 set +e
+_log_step_start "MC API registration"
 REG_MAX_RETRIES=10
 REG_RETRY_DELAY=30
 REG_RETRY_COUNT=0
@@ -157,7 +179,9 @@ done
 set -e
 
 if [ "$REG_OK" != "true" ]; then
+    _log_step_failure 1
     echo "ERROR: Registration failed after $REG_MAX_RETRIES attempts (HTTP $HTTP_CODE)" >&2
     cat /tmp/register-response.json >&2
     exit 1
 fi
+_log_step_success
