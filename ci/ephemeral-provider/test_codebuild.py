@@ -2,7 +2,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
-from codebuild import BuildMonitor
+from codebuild import BuildFailure, BuildMonitor
 
 
 class ResourceNotFoundException(Exception):
@@ -188,14 +188,59 @@ class BuildMonitorTests(unittest.TestCase):
         )
         monitor = BuildMonitor(FakeSession(client))
 
-        with patch("codebuild.time.sleep"), self.assertLogs("codebuild", level="INFO") as captured:
+        with (
+            patch("codebuild.time.sleep"),
+            patch("codebuild.BUILD_PROGRESS_LOG_INTERVAL", 0),
+            self.assertLogs("codebuild", level="INFO") as captured,
+        ):
             monitor.wait_for_build(build_id, desired_sha, timeout=1)
 
         output = "\n".join(captured.output)
         self.assertIn("phase INSTALL: SUCCEEDED", output)
         self.assertIn("phase BUILD: IN_PROGRESS", output)
+        self.assertIn("still IN_PROGRESS: phase=BUILD", output)
         self.assertIn("summary: status=SUCCEEDED, total duration=8s", output)
         self.assertIn("summary: phase=BUILD, status=SUCCEEDED, duration=5s", output)
+
+    def test_reports_stopped_build_context_without_guessing_cause(self):
+        desired_sha = "a" * 40
+        build_id = "project:build-id"
+        client = FakeClient(
+            [
+                {
+                    "builds": [
+                        {
+                            "id": build_id,
+                            "buildStatus": "STOPPED",
+                            "currentPhase": "BUILD",
+                            "initiator": "codebuild/project",
+                            "sourceVersion": desired_sha,
+                            "phases": [
+                                {
+                                    "phaseType": "BUILD",
+                                    "phaseStatus": "STOPPED",
+                                    "contexts": [
+                                        {
+                                            "statusCode": "USER_INITIATED",
+                                            "message": "Build stopped by user",
+                                        }
+                                    ],
+                                }
+                            ],
+                        }
+                    ]
+                }
+            ]
+        )
+        monitor = BuildMonitor(FakeSession(client))
+
+        with self.assertRaises(BuildFailure) as raised:
+            monitor.wait_for_build(build_id, desired_sha, timeout=1)
+
+        self.assertIn("status STOPPED", str(raised.exception))
+        self.assertIn("initiator=codebuild/project", str(raised.exception))
+        self.assertIn("Build stopped by user", str(raised.exception))
+        self.assertEqual(raised.exception.result.status, "STOPPED")
 
 
 if __name__ == "__main__":

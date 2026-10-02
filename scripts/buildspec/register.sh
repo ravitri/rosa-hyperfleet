@@ -34,6 +34,35 @@ _log_step_failure() {
     echo "provision-step: FAILED ${_STEP_NAME} duration=$((SECONDS - _STEP_START))s exit_code=${_exit_code}" >&2
 }
 
+_log_live_response() {
+    local _http_code="$1"
+    local _response=""
+    if [ -f /tmp/mc-live-response.json ]; then
+        _response=$(tr '\r\n' '  ' < /tmp/mc-live-response.json | cut -c1-300)
+    fi
+    if [ -n "$_response" ]; then
+        echo "/live returned ${_http_code} (attempt ${RETRY_COUNT}/${LIVE_MAX_RETRIES}), response: ${_response}, retrying in ${LIVE_RETRY_DELAY}s..."
+    else
+        echo "/live returned ${_http_code} (attempt ${RETRY_COUNT}/${LIVE_MAX_RETRIES}), retrying in ${LIVE_RETRY_DELAY}s..."
+    fi
+}
+
+_log_target_health() {
+    local _target_group_arn
+    _target_group_arn=$(cd terraform/config/regional-cluster && \
+        terraform output -raw api_target_group_arn 2>/dev/null || true)
+    if [ -z "$_target_group_arn" ]; then
+        return
+    fi
+
+    echo "RC API target health:"
+    aws elbv2 describe-target-health \
+        --region "${TARGET_REGION}" \
+        --target-group-arn "$_target_group_arn" \
+        --query 'TargetHealthDescriptions[].{target:Target.Id,state:TargetHealth.State,reason:TargetHealth.Reason,description:TargetHealth.Description}' \
+        --output table 2>&1 || echo "Unable to read RC API target health"
+}
+
 # Read API Gateway URL and CloudFront domain from RC terraform state
 RESOLVED_REGIONAL_ACCOUNT_ID="${REGIONAL_AWS_ACCOUNT_ID}"
 
@@ -93,6 +122,7 @@ if ! [[ "$LIVE_MAX_RETRIES" =~ ^[1-9][0-9]*$ ]] || \
     exit 1
 fi
 _log_step_start "MC API live readiness"
+rm -f /tmp/mc-live-response.json
 RETRY_COUNT=0
 LIVE_OK=false
 
@@ -104,7 +134,7 @@ while [ $RETRY_COUNT -lt "$LIVE_MAX_RETRIES" ]; do
         SECURITY_TOKEN_HEADER=(-H "x-amz-security-token: ${AWS_SESSION_TOKEN}")
     fi
 
-    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+    HTTP_CODE=$(curl -sS -o /tmp/mc-live-response.json -w "%{http_code}" \
         --connect-timeout 10 \
         --max-time 30 \
         --aws-sigv4 "aws:amz:${TARGET_REGION}:execute-api" \
@@ -116,7 +146,7 @@ while [ $RETRY_COUNT -lt "$LIVE_MAX_RETRIES" ]; do
         LIVE_OK=true
         break
     fi
-    echo "/live returned $HTTP_CODE (attempt $RETRY_COUNT/$LIVE_MAX_RETRIES), retrying in ${LIVE_RETRY_DELAY}s..."
+    _log_live_response "$HTTP_CODE"
     sleep "$LIVE_RETRY_DELAY"
 done
 set -e
@@ -124,6 +154,10 @@ set -e
 if [ "$LIVE_OK" != "true" ]; then
     _log_step_failure 1
     echo "ERROR: /live did not return 200 after $LIVE_MAX_RETRIES attempts" >&2
+    if [ -s /tmp/mc-live-response.json ]; then
+        echo "Last /live response: $(tr '\r\n' '  ' < /tmp/mc-live-response.json | cut -c1-300)" >&2
+    fi
+    _log_target_health
     exit 1
 fi
 _log_step_success

@@ -1,5 +1,6 @@
 import logging
 import time
+from dataclasses import dataclass, field
 
 import boto3
 
@@ -9,6 +10,30 @@ log = logging.getLogger(__name__)
 
 WEBHOOK_DISCOVERY_ATTEMPTS = 5
 WEBHOOK_DISCOVERY_INTERVAL = 2
+BUILD_PROGRESS_LOG_INTERVAL = 300
+
+
+@dataclass
+class BuildResult:
+    """Terminal result and diagnostics for one CodeBuild execution."""
+
+    build_id: str
+    status: str
+    total_duration: float | None
+    phases: list[dict] = field(default_factory=list)
+    error: str | None = None
+    log_url: str | None = None
+    source_version: str = ""
+    resolved_source_version: str = ""
+    initiator: str | None = None
+
+
+class BuildFailure(RuntimeError):
+    """A build failure carrying the CodeBuild result for final reporting."""
+
+    def __init__(self, message: str, result: BuildResult):
+        super().__init__(message)
+        self.result = result
 
 
 class BuildMonitor:
@@ -138,6 +163,14 @@ class BuildMonitor:
         end = cls._timestamp_seconds(phase.get("endTime")) or time.time()
         return max(0.0, end - start)
 
+    @classmethod
+    def _build_duration(cls, build: dict, monitor_start: float) -> float:
+        start = cls._timestamp_seconds(build.get("startTime"))
+        end = cls._timestamp_seconds(build.get("endTime"))
+        if start is not None:
+            return max(0.0, (end or time.time()) - start)
+        return max(0.0, time.monotonic() - monitor_start)
+
     @staticmethod
     def _format_duration(seconds: float | None) -> str:
         if seconds is None:
@@ -150,6 +183,60 @@ class BuildMonitor:
         if minutes:
             return f"{minutes}m {remainder}s"
         return f"{remainder}s"
+
+    def _build_result(
+        self,
+        build: dict,
+        monitor_start: float,
+        error: str | None = None,
+    ) -> BuildResult:
+        phases = []
+        current_phase = build.get("currentPhase")
+        for phase in build.get("phases") or []:
+            phase_type = phase.get("phaseType")
+            if not phase_type:
+                continue
+            phases.append(
+                {
+                    "name": phase_type,
+                    "status": phase.get("phaseStatus")
+                    or ("IN_PROGRESS" if phase_type == current_phase else "UNKNOWN"),
+                    "duration": self._phase_duration(phase),
+                }
+            )
+
+        return BuildResult(
+            build_id=build.get("id", "unknown"),
+            status=build.get("buildStatus", "UNKNOWN"),
+            total_duration=self._build_duration(build, monitor_start),
+            phases=phases,
+            error=error,
+            log_url=(build.get("logs") or {}).get("deepLink"),
+            source_version=build.get("sourceVersion", ""),
+            resolved_source_version=build.get("resolvedSourceVersion", ""),
+            initiator=build.get("initiator"),
+        )
+
+    @staticmethod
+    def _failure_detail(build: dict) -> str:
+        """Extract the AWS-provided terminal context without guessing the cause."""
+        details = []
+        if build.get("initiator"):
+            details.append(f"initiator={build['initiator']}")
+        if build.get("currentPhase"):
+            details.append(f"phase={build['currentPhase']}")
+
+        contexts = []
+        for phase in build.get("phases") or []:
+            phase_type = phase.get("phaseType", "unknown")
+            for context in phase.get("contexts") or phase.get("phaseContext") or []:
+                message = context.get("message") or context.get("statusCode")
+                if message:
+                    contexts.append(f"{phase_type}: {message}")
+        if contexts:
+            details.append("context=" + " | ".join(contexts[-3:]))
+
+        return "; ".join(details) or "no terminal context was returned by CodeBuild"
 
     def _log_phase_updates(self, build: dict, phase_states: dict[str, str]) -> None:
         """Log each CodeBuild phase when its status changes."""
@@ -175,38 +262,92 @@ class BuildMonitor:
                 self._format_duration(self._phase_duration(phase)),
             )
 
-    def _log_build_summary(self, build: dict, monitor_start: float) -> None:
-        """Log total build time and each CodeBuild phase duration."""
-        build_id = build.get("id", "unknown")
-        start = self._timestamp_seconds(build.get("startTime"))
-        end = self._timestamp_seconds(build.get("endTime"))
-        total_duration = (
-            max(0.0, (end or time.time()) - start)
-            if start is not None
-            else time.monotonic() - monitor_start
+    def _latest_progress_log(self, build: dict) -> str | None:
+        """Read the latest useful progress marker from the CodeBuild log stream."""
+        logs = build.get("logs") or {}
+        group_name = logs.get("groupName")
+        stream_name = logs.get("streamName")
+        if not group_name or not stream_name:
+            return None
+
+        try:
+            logs_client = self.session.client("logs")
+            response = logs_client.get_log_events(
+                logGroupName=group_name,
+                logStreamName=stream_name,
+                startFromHead=False,
+                limit=20,
+            )
+        except Exception:
+            return None
+
+        markers = (
+            "provision-step:",
+            "/live returned",
+            "Waiting for",
+            "check-queue:",
+            "ERROR:",
         )
+        for event in reversed(response.get("events") or []):
+            message = " ".join(event.get("message", "").split())
+            if message and any(marker in message for marker in markers):
+                return message[:300]
+        return None
+
+    def _log_progress_heartbeat(self, build: dict, monitor_start: float) -> None:
+        current_phase = build.get("currentPhase") or "UNKNOWN"
+        phase = next(
+            (
+                phase
+                for phase in build.get("phases") or []
+                if phase.get("phaseType") == current_phase
+            ),
+            {},
+        )
+        latest_log = self._latest_progress_log(build)
+        message = (
+            f"Build {build.get('id', 'unknown')} still "
+            f"{build.get('buildStatus', 'UNKNOWN')}: phase={current_phase}, "
+            f"total elapsed={self._format_duration(self._build_duration(build, monitor_start))}, "
+            f"phase elapsed={self._format_duration(self._phase_duration(phase))}"
+        )
+        if latest_log:
+            message += f", latest log: {latest_log}"
+        log.info(message)
+
+    def _log_build_summary(
+        self,
+        build: dict,
+        monitor_start: float,
+        error: str | None = None,
+    ) -> BuildResult:
+        """Log total build time and each CodeBuild phase duration."""
+        result = self._build_result(build, monitor_start, error)
         log.info(
             "Build %s summary: status=%s, total duration=%s",
-            build_id,
-            build.get("buildStatus", "UNKNOWN"),
-            self._format_duration(total_duration),
+            result.build_id,
+            result.status,
+            self._format_duration(result.total_duration),
         )
 
-        for phase in build.get("phases") or []:
-            phase_type = phase.get("phaseType")
-            if not phase_type:
-                continue
+        for phase in result.phases:
             log.info(
                 "Build %s summary: phase=%s, status=%s, duration=%s",
-                build_id,
-                phase_type,
-                phase.get("phaseStatus", "UNKNOWN"),
-                self._format_duration(self._phase_duration(phase)),
+                result.build_id,
+                phase["name"],
+                phase["status"],
+                self._format_duration(phase["duration"]),
             )
 
-        deep_link = (build.get("logs") or {}).get("deepLink")
-        if deep_link:
-            log.info("Build %s CloudWatch logs: %s", build_id, deep_link)
+        if result.error:
+            log.error("Build %s failure detail: %s", result.build_id, result.error)
+        if result.log_url:
+            log.info("Build %s CloudWatch logs: %s", result.build_id, result.log_url)
+        return result
+
+    def _raise_build_failure(self, build: dict, monitor_start: float, message: str):
+        result = self._log_build_summary(build, monitor_start, message)
+        raise BuildFailure(message, result)
 
     def wait_for_build(
         self,
@@ -239,6 +380,8 @@ class BuildMonitor:
         monitor_start = time.monotonic()
         phase_states: dict[str, str] = {}
         status = "UNKNOWN"
+        last_build = None
+        last_heartbeat = monitor_start
         while time.monotonic() - monitor_start < timeout:
             try:
                 response = self.client.batch_get_builds(ids=[build_id])
@@ -247,6 +390,7 @@ class BuildMonitor:
                     raise RuntimeError(f"Build not found: {build_id}")
 
                 build = builds[0]
+                last_build = build
                 status = build.get("buildStatus")
                 source_sha = build.get("sourceVersion", "")
                 resolved_sha = build.get("resolvedSourceVersion", "")
@@ -265,25 +409,32 @@ class BuildMonitor:
                 if status in ("IN_PROGRESS", "QUEUED"):
                     # resolvedSourceVersion is not available until DOWNLOAD_SOURCE
                     # completes, so an empty value here is expected.
+                    now = time.monotonic()
+                    if now - last_heartbeat >= BUILD_PROGRESS_LOG_INTERVAL:
+                        self._log_progress_heartbeat(build, monitor_start)
+                        last_heartbeat = now
                     time.sleep(POLL_INTERVAL)
                     continue
 
                 # Terminal statuses
                 if status == "SUCCEEDED":
-                    self._log_build_summary(build, monitor_start)
                     # For GitHub/CodeConnections, the resolved commit is available
                     # once the build reaches a terminal state.
                     if not resolved_sha:
-                        raise RuntimeError(
+                        self._raise_build_failure(
+                            build,
+                            monitor_start,
                             f"Build {build_id} succeeded without resolvedSourceVersion; "
                             "cannot verify the requested SHA."
                         )
 
                     if resolved_sha != desired_sha:
-                        raise RuntimeError(
+                        self._raise_build_failure(
+                            build,
+                            monitor_start,
                             f"Build {build_id} resolved to SHA {resolved_sha[:7]}, "
                             f"expected {desired_sha[:7]}. This should not happen when "
-                            "StartBuild is pinned to the pushed SHA."
+                            "StartBuild is pinned to the pushed SHA.",
                         )
 
                     # Check the success contract: APPLIED=="true" && APPLIED_SHA==desired_sha.
@@ -292,7 +443,9 @@ class BuildMonitor:
                     applied_sha = self._exported_var(build, "APPLIED_SHA")
 
                     if applied != "true":
-                        raise RuntimeError(
+                        self._raise_build_failure(
+                            build,
+                            monitor_start,
                             f"Build {build_id} succeeded but APPLIED={applied!r} (not 'true'). "
                             "The CodeBuild success contract was not satisfied; the build "
                             "may have been skipped by check-queue.sh or failed to export "
@@ -301,31 +454,35 @@ class BuildMonitor:
 
                     if applied_sha != desired_sha:
                         applied_sha_display = (applied_sha or "")[:7]
-                        raise RuntimeError(
+                        self._raise_build_failure(
+                            build,
+                            monitor_start,
                             f"Build {build_id} succeeded but APPLIED_SHA={applied_sha_display!r}, "
                             f"expected {desired_sha[:7]}. State mismatch."
                         )
 
+                    result = self._log_build_summary(build, monitor_start)
                     log.info(
                         "Build %s succeeded: APPLIED=true, APPLIED_SHA=%s",
                         build_id,
                         applied_sha[:7],
                     )
-                    return
+                    return result
 
                 elif status == "STOPPED":
-                    self._log_build_summary(build, monitor_start)
-                    # Superseded by a newer build (check-queue.sh dedup)
-                    raise RuntimeError(
-                        f"Build {build_id} was STOPPED (superseded by a newer build). "
-                        "Should not happen when we StartBuild the newest SHA."
+                    self._raise_build_failure(
+                        build,
+                        monitor_start,
+                        f"Build {build_id} ended with status STOPPED; "
+                        f"{self._failure_detail(build)}",
                     )
 
                 elif status in ("FAILED", "TIMED_OUT", "FAULT"):
-                    self._log_build_summary(build, monitor_start)
-                    raise RuntimeError(
-                        f"Build {build_id} failed with status {status}. "
-                        "Check CloudWatch logs for details."
+                    self._raise_build_failure(
+                        build,
+                        monitor_start,
+                        f"Build {build_id} failed with status {status}; "
+                        f"{self._failure_detail(build)}",
                     )
 
                 else:
@@ -337,12 +494,23 @@ class BuildMonitor:
                     "Build %s project deleted (ResourceNotFoundException) — treating as complete",
                     build_id,
                 )
-                return
+                return BuildResult(
+                    build_id=build_id,
+                    status="NOT_FOUND",
+                    total_duration=time.monotonic() - monitor_start,
+                    error="CodeBuild project was deleted while waiting",
+                )
 
-        raise TimeoutError(
+        timeout_message = (
             f"Build {build_id} did not complete within {timeout}s. "
             f"Last known status: {status}"
         )
+        if last_build is not None:
+            result = self._log_build_summary(last_build, monitor_start, timeout_message)
+            timeout_error = TimeoutError(timeout_message)
+            timeout_error.result = result
+            raise timeout_error
+        raise TimeoutError(timeout_message)
 
     def delete_project(self, project_name: str):
         """Delete a CodeBuild project (idempotent).

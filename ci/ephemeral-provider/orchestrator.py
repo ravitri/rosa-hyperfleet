@@ -16,7 +16,7 @@ import yaml
 
 from __init__ import TARGET_ENVIRONMENT
 from aws import AWSCredentials
-from codebuild import BuildMonitor
+from codebuild import BuildMonitor, BuildResult
 from codebuild_logs import download_codebuild_logs
 from git import GitManager
 from yaml_utils import deep_merge, load_and_merge
@@ -83,6 +83,7 @@ class EphemeralEnvOrchestrator:
         # CodeBuild project names (read from rendered config after bootstrap)
         self.rc_project: str | None = None
         self.mc_projects: list[str] = []
+        self._codebuild_logs_collected = False
 
     def provision(self, save_rc_state: str | None = None, save_mc_state: str | None = None):
         """Provision the ephemeral environment (setup + bootstrap + wait for pipelines).
@@ -268,11 +269,17 @@ class EphemeralEnvOrchestrator:
             log.warning("ARTIFACT_DIR not set — skipping CodeBuild log collection")
             return
 
+        if self._codebuild_logs_collected:
+            artifact_path = Path(artifact_dir) / "codebuild-logs"
+            log.info("CodeBuild logs already collected: %s", artifact_path)
+            return artifact_path
+
         if not self.aws or not self.aws.session:
             log.warning("AWS session not available — skipping log collection")
             return
 
         artifact_path = Path(artifact_dir) / "codebuild-logs"
+        self._codebuild_logs_collected = True
         # Central region logs (pipeline-provisioner CodeBuild)
         files = download_codebuild_logs(self.aws.session, self.eph_prefix, artifact_path)
         # RC/MC builds live in the target account even when both sessions use the same region.
@@ -283,6 +290,9 @@ class EphemeralEnvOrchestrator:
             content = f.read_text()
             content = _redact_sensitive(content)
             f.write_text(content)
+
+        log.info("CodeBuild artifact directory: %s", artifact_path)
+        return artifact_path
 
     def _setup_aws(self):
         """Set up AWS credentials and trust policies."""
@@ -534,6 +544,7 @@ class EphemeralEnvOrchestrator:
         log.info("==========================================")
 
         failed = []
+        results: dict[str, BuildResult] = {}
         with ThreadPoolExecutor(max_workers=len(builds)) as executor:
             # Submit all wait tasks
             future_to_build = {
@@ -544,23 +555,86 @@ class EphemeralEnvOrchestrator:
             # Process results as they complete
             for future in as_completed(future_to_build):
                 project_name = future_to_build[future]
+                build_id = next(
+                    build_id for name, build_id in builds if name == project_name
+                )
                 try:
-                    future.result()
-                    log.info("✓ Build succeeded: %s", project_name)
+                    result = future.result()
+                    results[project_name] = result
+                    log.info(
+                        "✓ Build completed: %s (status=%s, duration=%s)",
+                        project_name,
+                        result.status,
+                        self.target_monitor._format_duration(result.total_duration),
+                    )
                 except (RuntimeError, TimeoutError) as e:
+                    result = getattr(e, "result", None)
+                    if result is None:
+                        result = BuildResult(
+                            build_id=build_id,
+                            status="ERROR",
+                            total_duration=None,
+                            error=str(e),
+                        )
+                    results[project_name] = result
                     log.error("Build '%s' failed: %s", project_name, e)
                     failed.append(project_name)
 
+        artifact_path = None
+        try:
+            artifact_path = self.collect_codebuild_logs()
+        except Exception:
+            log.exception("Failed to collect CodeBuild logs")
+
+        self._log_provision_build_summary(builds, results, artifact_path)
+
         if failed:
-            try:
-                self.collect_codebuild_logs()
-            except Exception:
-                log.exception("Failed to collect CodeBuild logs")
             raise RuntimeError(
                 f"{len(failed)} build(s) failed during provisioning: {', '.join(failed)}"
             )
 
         log.info("All builds completed successfully.")
+
+    def _log_provision_build_summary(
+        self,
+        builds: list[tuple[str, str]],
+        results: dict[str, BuildResult],
+        artifact_path: Path | None,
+    ) -> None:
+        """Print one final, actionable report for every provisioning build."""
+        log.info("")
+        log.info("==========================================")
+        log.info("Provision: Build Summary")
+        log.info("==========================================")
+
+        for project_name, build_id in builds:
+            result = results.get(
+                project_name,
+                BuildResult(
+                    build_id=build_id,
+                    status="UNKNOWN",
+                    total_duration=None,
+                    error="No result was returned by the build monitor",
+                ),
+            )
+            outcome = "SUCCEEDED" if result.error is None else "FAILED"
+            log.info(
+                "Build report: project=%s build=%s outcome=%s codebuild_status=%s duration=%s",
+                project_name,
+                result.build_id,
+                outcome,
+                result.status,
+                self.target_monitor._format_duration(result.total_duration),
+            )
+            if result.error:
+                log.info("Build report: project=%s issue=%s", project_name, result.error)
+            if result.log_url:
+                log.info("Build report: project=%s CloudWatch=%s", project_name, result.log_url)
+
+        if artifact_path:
+            log.info("Build report: artifacts=%s", artifact_path)
+        else:
+            log.info("Build report: artifacts=unavailable (ARTIFACT_DIR is not set)")
 
     def _save_terraform_outputs(self, git: GitManager, dest: str):
         """Fetch RC terraform outputs and write them to a file.

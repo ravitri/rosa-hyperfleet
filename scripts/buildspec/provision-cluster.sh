@@ -72,6 +72,7 @@ case "$CLUSTER_TYPE" in
         echo "provision-cluster: Regional Cluster (RC) pipeline"
         run_timed_step "RC Terraform infrastructure" ./scripts/buildspec/provision-infra-rc.sh
         run_timed_step "RC ArgoCD bootstrap" ./scripts/buildspec/bootstrap-argocd-rc.sh
+        run_timed_step "RC Platform API live readiness" ./scripts/buildspec/wait-for-regional-api.sh
         ;;
 
     management-cluster)
