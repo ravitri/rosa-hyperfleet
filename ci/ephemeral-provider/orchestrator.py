@@ -84,6 +84,7 @@ class EphemeralEnvOrchestrator:
         self.rc_project: str | None = None
         self.mc_projects: list[str] = []
         self._codebuild_logs_collected = False
+        self._operation_started_at: float | None = None
 
     def provision(self, save_rc_state: str | None = None, save_mc_state: str | None = None):
         """Provision the ephemeral environment (setup + bootstrap + wait for pipelines).
@@ -92,6 +93,7 @@ class EphemeralEnvOrchestrator:
             save_rc_state: If set, save RC terraform outputs JSON to this path after provisioning.
             save_mc_state: If set, save MC terraform outputs JSON to this path after provisioning.
         """
+        self._operation_started_at = time.monotonic()
         self._setup_aws()
 
         git = GitManager(self.creds_dir, self.repo, self.branch)
@@ -138,6 +140,7 @@ class EphemeralEnvOrchestrator:
         configuration is re-injected, and the rendered result is force-pushed.
         Existing Terraform state and CodeBuild projects are reused.
         """
+        self._operation_started_at = time.monotonic()
         git = GitManager(
             self.creds_dir,
             self.repo,
@@ -280,10 +283,24 @@ class EphemeralEnvOrchestrator:
 
         artifact_path = Path(artifact_dir) / "codebuild-logs"
         self._codebuild_logs_collected = True
-        # Central region logs (pipeline-provisioner CodeBuild)
-        files = download_codebuild_logs(self.aws.session, self.eph_prefix, artifact_path)
-        # RC/MC builds live in the target account even when both sessions use the same region.
-        files.extend(download_codebuild_logs(self.aws.target_session, self.eph_prefix, artifact_path))
+        # Both sessions use the central account in the current setup; they only
+        # differ by region. Avoid downloading the same account/region twice when
+        # the target region is also us-east-1.
+        files = []
+        seen_sessions = set()
+        for session in (self.aws.session, self.aws.target_session):
+            if session is None:
+                continue
+            session_key = (self.aws.central_account_id, session.region_name)
+            if session_key in seen_sessions:
+                log.info(
+                    "Skipping duplicate CodeBuild log session: account=%s region=%s",
+                    session_key[0],
+                    session_key[1],
+                )
+                continue
+            seen_sessions.add(session_key)
+            files.extend(download_codebuild_logs(session, self.eph_prefix, artifact_path))
 
         # Redact sensitive values (AWS keys, session tokens) from Prow artifacts
         for f in files:
@@ -516,6 +533,9 @@ class EphemeralEnvOrchestrator:
         log.info("Provision: Starting Builds")
         log.info("==========================================")
 
+        operation_start = self._operation_started_at or time.monotonic()
+        build_window_start = time.monotonic()
+
         # StartBuild RC + each MC, collecting (project_name, build_id) tuples
         builds = []
 
@@ -576,13 +596,26 @@ class EphemeralEnvOrchestrator:
                     log.error("Build '%s' failed: %s", project_name, e)
                     failed.append(project_name)
 
+        build_window_duration = time.monotonic() - build_window_start
         artifact_path = None
+        artifact_collection_start = time.monotonic()
         try:
             artifact_path = self.collect_codebuild_logs()
         except Exception:
             log.exception("Failed to collect CodeBuild logs")
+        artifact_collection_duration = time.monotonic() - artifact_collection_start
 
-        self._log_provision_build_summary(builds, results, artifact_path)
+        self._log_provision_build_summary(
+            builds,
+            results,
+            artifact_path,
+            timing={
+                "pre_build": build_window_start - operation_start,
+                "build_window": build_window_duration,
+                "artifact_collection": artifact_collection_duration,
+                "total": time.monotonic() - operation_start,
+            },
+        )
 
         if failed:
             raise RuntimeError(
@@ -596,6 +629,7 @@ class EphemeralEnvOrchestrator:
         builds: list[tuple[str, str]],
         results: dict[str, BuildResult],
         artifact_path: Path | None,
+        timing: dict[str, float] | None = None,
     ) -> None:
         """Print one final, actionable report for every provisioning build."""
         log.info("")
@@ -615,10 +649,6 @@ class EphemeralEnvOrchestrator:
                 ),
             )
             outcome = "SUCCEEDED" if result.error is None else "FAILED"
-            detail = result.error or "APPLIED=true"
-            detail = " ".join(detail.split())
-            if len(detail) > 110:
-                detail = f"{detail[:107]}..."
             short_build_id = result.build_id.rsplit(":", 1)[-1][:8]
             rows.append(
                 (
@@ -627,15 +657,38 @@ class EphemeralEnvOrchestrator:
                     result.status,
                     self.target_monitor._format_duration(result.total_duration),
                     short_build_id,
-                    detail,
                 )
             )
 
+        if timing:
+            log.info(
+                "Provision timing: pre-build=%s, CodeBuild window=%s, "
+                "artifact collection=%s, total=%s",
+                self.target_monitor._format_duration(timing["pre_build"]),
+                self.target_monitor._format_duration(timing["build_window"]),
+                self.target_monitor._format_duration(timing["artifact_collection"]),
+                self.target_monitor._format_duration(timing["total"]),
+            )
+
         log.info("Build report table:")
-        log.info("%-32s %-8s %-10s %-10s %-8s %s", "PROJECT", "OUTCOME", "STATUS", "DURATION", "BUILD", "DETAIL")
-        log.info("%-32s %-8s %-10s %-10s %-8s %s", "-------", "-------", "------", "--------", "-----", "------")
+        log.info(
+            "%-32s %-8s %-10s %-10s %-8s",
+            "PROJECT",
+            "OUTCOME",
+            "STATUS",
+            "DURATION",
+            "BUILD",
+        )
+        log.info(
+            "%-32s %-8s %-10s %-10s %-8s",
+            "-------",
+            "-------",
+            "------",
+            "--------",
+            "-----",
+        )
         for row in rows:
-            log.info("%-32s %-8s %-10s %-10s %-8s %s", *row)
+            log.info("%-32s %-8s %-10s %-10s %-8s", *row)
 
         for project_name, build_id in builds:
             result = results.get(project_name)

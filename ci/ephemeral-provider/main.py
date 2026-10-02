@@ -252,14 +252,14 @@ def main():
             log.info("")
             log.info("    ./ci/ephemeral-provider/main.py --teardown --id %s", env_id)
             log.info("")
-    except Exception:
+    except Exception as exc:
         operation = (
             "resume" if args.resume else
             "resync" if args.resync else
             "teardown" if is_teardown else
             "provision"
         )
-        log.exception("Ephemeral environment %s failed", operation)
+        log.error("Ephemeral environment %s failed: %s", operation, exc)
         sys.exit(1)
 
 

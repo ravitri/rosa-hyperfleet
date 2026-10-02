@@ -33,9 +33,9 @@ _log_live_response() {
         response=$(tr '\r\n' '  ' < /tmp/rc-live-response.json | cut -c1-300)
     fi
     if [ -n "$response" ]; then
-        echo "/v0/live returned ${http_code} (attempt ${RETRY_COUNT}/${LIVE_MAX_RETRIES}), response: ${response}, retrying in ${LIVE_RETRY_DELAY}s..."
+        echo "${LIVE_URL} returned ${http_code} (attempt ${RETRY_COUNT}/${LIVE_MAX_RETRIES}), response: ${response}, retrying in ${LIVE_RETRY_DELAY}s..."
     else
-        echo "/v0/live returned ${http_code} (attempt ${RETRY_COUNT}/${LIVE_MAX_RETRIES}), retrying in ${LIVE_RETRY_DELAY}s..."
+        echo "${LIVE_URL} returned ${http_code} (attempt ${RETRY_COUNT}/${LIVE_MAX_RETRIES}), retrying in ${LIVE_RETRY_DELAY}s..."
     fi
 }
 
@@ -64,7 +64,8 @@ if ! [[ "$LIVE_MAX_RETRIES" =~ ^[1-9][0-9]*$ ]] || \
     exit 1
 fi
 
-echo "Waiting for Regional Cluster Platform API: ${API_GATEWAY_URL}/v0/live"
+LIVE_URL="${API_GATEWAY_URL}${PLATFORM_API_LIVE_PATH}"
+echo "Checking Regional Cluster Platform API live endpoint: ${LIVE_URL}"
 rm -f /tmp/rc-live-response.json
 RETRY_COUNT=0
 LIVE_OK=false
@@ -83,7 +84,7 @@ while [ $RETRY_COUNT -lt "$LIVE_MAX_RETRIES" ]; do
         --aws-sigv4 "aws:amz:${TARGET_REGION}:execute-api" \
         --user "${AWS_ACCESS_KEY_ID}:${AWS_SECRET_ACCESS_KEY}" \
         "${SECURITY_TOKEN_HEADER[@]}" \
-        -X GET "${API_GATEWAY_URL}/v0/live")
+        -X GET "${LIVE_URL}")
 
     if [ "$HTTP_CODE" = "200" ]; then
         LIVE_OK=true
@@ -95,9 +96,9 @@ done
 set -e
 
 if [ "$LIVE_OK" != "true" ]; then
-    echo "ERROR: Regional Cluster Platform API did not return 200 after ${LIVE_MAX_RETRIES} attempts" >&2
+    echo "ERROR: ${LIVE_URL} did not return 200 after ${LIVE_MAX_RETRIES} attempts" >&2
     if [ -s /tmp/rc-live-response.json ]; then
-        echo "Last /v0/live response: $(tr '\r\n' '  ' < /tmp/rc-live-response.json | cut -c1-300)" >&2
+        echo "Last live endpoint checked (${LIVE_URL}) response: $(tr '\r\n' '  ' < /tmp/rc-live-response.json | cut -c1-300)" >&2
     fi
     _log_target_health
     exit 1
