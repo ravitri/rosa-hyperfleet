@@ -54,8 +54,6 @@ resource "aws_iam_role_policy" "mc_codebuild_policy" {
           "s3:GetBucketLocation"
         ]
         Resource = [
-          "arn:aws:s3:::mc*-artifacts-*",
-          "arn:aws:s3:::mc*-artifacts-*/*",
           "arn:aws:s3:::terraform-state-*",
           "arn:aws:s3:::terraform-state-*/*"
         ]

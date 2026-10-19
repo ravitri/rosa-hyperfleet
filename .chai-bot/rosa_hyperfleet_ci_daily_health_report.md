@@ -6,7 +6,7 @@ You are running a **cron** scheduled task that produces a daily CI health report
 
 Check the pass/fail history (last 10 completed builds per job) for ROSA HyperFleet CI periodic jobs. Report overall CI health and individual job status.
 
-In addition, report the **OCP nightly e2e periodics** — the HyperShift periodics that run rosa-hyperfleet e2e against OCP nightly release images. Report them as extra rows in the same trend table plus a condensed status line in the header. Because these run later and usually haven't finished at report time, their today cell shows `:loader:` instead of a pass/fail.
+In addition, report the **OCP nightly e2e periodics** — the HyperShift periodics that run rosa-hyperfleet e2e against OCP nightly release images. Report them as extra rows in the same trend table plus a condensed status line in the header. If today's run has finished, show its real pass/fail; if it is still running (or hasn't started), show `:loader:` in its today cell instead of a pass/fail.
 
 - Always post the top-level status to the channel (never call `no_action_required()`)
 - If all jobs are passing: post the status summary only — no threaded replies
@@ -46,7 +46,7 @@ Their config lives in the HyperShift CI config (not the rosa-hyperfleet config a
 - `https://raw.githubusercontent.com/openshift/release/refs/heads/main/ci-operator/jobs/openshift/hypershift/openshift-hypershift-release-5.0-periodics.yaml`
 - `https://raw.githubusercontent.com/openshift/release/refs/heads/main/ci-operator/jobs/openshift/hypershift/openshift-hypershift-release-5.1-periodics.yaml`
 
-For these two jobs, collect their recent completed runs (date, pass/fail, build ID). They render as two extra rows in the shared trend table (`hypershift-ocp-5.0-nightly`, `hypershift-ocp-5.1-nightly`); today's cell is `:loader:` until the run finishes, so these rows show the last 9 completed days plus today's `:loader:`. They also appear in a condensed header line (see Step 4).
+For these two jobs, collect their recent completed runs (date, pass/fail, build ID). They render as two extra rows in the shared trend table (`hypershift-ocp-5.0-nightly`, `hypershift-ocp-5.1-nightly`). Today's cell shows a real pass/fail once the run has finished; while it is still running (or hasn't started) it shows `:loader:`. They also appear in a condensed header line (see Step 4).
 
 ### 2. Collect build history (last 10 runs)
 
@@ -54,7 +54,12 @@ For each job, collect the **last 10 completed job runs** for the trend table. Us
 
 **Same-day reporting rule (rosa-hyperfleet jobs):** For `ephemeral`, `integration`, and `stage`, the "Latest Run Status" section must report **today's run**. Do not fall back to a previous day's completed run for the latest status. These three jobs run at `0 4 * * *` (04:00 UTC), so by the time this report runs they have normally finished.
 
-**Exception — OCP nightly e2e periodics:** The HyperShift periodics run later (`0 8 * * *`, 08:00 UTC) and their e2e takes a few hours, so today's run is often still in progress — or not yet started — when this report fires. Do **not** apply the strict "today only" rule to them, and do **not** burn the 30-minute retry waiting on them. Show `:loader:` in today's trend cell and base the header status on their latest completed run (e.g. `:loader: running (last ✅ Oct 9)`). If today's run has already finished, use it as a normal pass/fail. This avoids a confusing "no run today" every morning.
+**Exception — OCP nightly e2e periodics:** Report these based on whether today's run has finished, not on the clock:
+
+- **If today's run has finished:** use it as a normal pass/fail — real `✅`/`❌` in the today cell, and a `passing (<date>)` / `failing (<date>)` header.
+- **If today's run is still running or hasn't started:** show `:loader:`/`⌛` in the today cell and base the header on the latest completed run, e.g. `in progress (last passed Oct 9)`.
+
+This exception **overrides** both the "today only" rule above and the generic "Retry for in-progress jobs" rule below: do **not** wait or retry on an unfinished OCP nightly run — report it as `:loader:`/in progress straight away. This keeps the row correct whether the periodic lands before or after this report, and avoids a confusing "no run today" when it simply hasn't finished.
 
 **Job status values:** Report the actual state of today's run:
 
@@ -64,7 +69,7 @@ For each job, collect the **last 10 completed job runs** for the trend table. Us
 - **scheduled** — today's run is queued but not yet started
 - **no run today** — no run was triggered today
 
-**Retry for in-progress jobs:** If today's run for any tracked job is in a `scheduled` or `running` state:
+**Retry for in-progress jobs** (the three rosa-hyperfleet jobs; the OCP nightly periodics are excepted per Step 2 above)**:** If today's run for any tracked job is in a `scheduled` or `running` state:
 
 1. Wait **10 minutes** and re-check the job status
 2. Repeat up to **3 times** (30 minutes maximum wait)
@@ -88,7 +93,7 @@ If Prow tools don't return historical build data directly, use `fetch_web_conten
 
 - **Header row**: Dates in MonDD format (e.g., Jun10, Jun11, Jun12, ...), newest = today in the rightmost column
 - **Job rows**: Job name followed by ✅ or ❌ for each run, then the pass count (e.g. `9/10`)
-- **OCP nightly rows** go in the same table. Today's cell is `:loader:` until the 08:00 UTC run finishes (see the Step 2 exception); its pass count ignores the `:loader:` cell
+- **OCP nightly rows** go in the same table. Today's cell is a real pass/fail once the run has finished, or `:loader:` while it is still running (see the Step 2 exception); the pass count ignores a `:loader:` cell
 - Order: oldest run first (leftmost) → newest run last (rightmost)
 - Use monospace formatting for alignment; pad all labels to the longest
 
@@ -124,12 +129,12 @@ Evaluate status in this order:
 
 Post a concise summary as your channel response. Use concise job names: "ephemeral", "integration", and "stage".
 
-**Emoji key:** :large_green_circle: passing, :red_circle: failing, :large_yellow_circle: mixed, :hourglass_flowing_sand: running/scheduled, :white_circle: no run today. In the trend table, a `:loader:` cell means today's OCP nightly run hasn't completed yet.
+**Emoji key:** :large_green_circle: passing, :red_circle: failing, :large_yellow_circle: mixed, :hourglass_flowing_sand: running/scheduled, :white_circle: no run today. In the trend table, a `:loader:` cell means that OCP nightly run is still running (or hasn't started).
 
 ```text
 %OVERALL_EMOJI% *CI Daily — %DATE%*
 %JOB_EMOJI% ephemeral: %STATUS% (<%URL%|run>)  |  %JOB_EMOJI% integration: %STATUS% (<%URL%|run>)  |  %JOB_EMOJI% stage: %STATUS% (<%URL%|run>)
-%JOB_EMOJI% OCP nightly: 5.0 %STATUS%  |  5.1 %STATUS%
+%JOB_EMOJI% latest OCP nightly: 5.0 %STATUS% (<%URL%|run>)  |  5.1 %STATUS% (<%URL%|run>)
 
                             Oct01 Oct02 Oct03 Oct04 Oct05 Oct06 Oct07 Oct08 Oct09 Oct10
 ephemeral:                   ✅    ✅    ✅    ✅    ✅    ✅    ✅    ✅    ✅    ✅   10/10
@@ -139,9 +144,17 @@ hypershift-ocp-5.0-nightly:  ✅    ✅    ✅    ✅    ✅    ✅    ✅    �
 hypershift-ocp-5.1-nightly:  ✅    ❌    ✅    ✅    ✅    ✅    ✅    ✅    ✅   :loader:  8/9
 ```
 
-**One merged table; the last column is today.** The rosa-hyperfleet jobs run at 04:00 UTC and have finished by report time, so their today cell is a real ✅/❌. The OCP nightly periodics run at 08:00 UTC and usually haven't finished, so their today cell shows `:loader:` (running or not started yet) until the run completes — never a real pass/fail until it does. The pass count ignores the `:loader:` cell, so an in-progress day reads e.g. `9/9`.
+**One merged table; the last column is today.** The rosa-hyperfleet jobs run at 04:00 UTC and have finished by report time, so their today cell is a real ✅/❌. For the OCP nightly periodics, the today cell is a real ✅/❌ if that run has finished, or `:loader:` while it is still running (or hasn't started). The pass count ignores a `:loader:` cell, so an in-progress day reads e.g. `9/9`.
 
-**Header line:** keep the OCP nightly line short — version shorthand (`5.0`, `5.1`) and `%STATUS%` where status is `passing (Oct 9)`, `failing (Oct 9)`, or `:loader: running (last ✅ Oct 9)`.
+**Header line:** lead with a single `%JOB_EMOJI%` for the combined OCP nightly status (red if either version failed, green if both are passing/in progress, otherwise the mixed/pending dot — same rules as individual job health). Then, for each version, show the shorthand (`5.0`, `5.1`), the status in plain words, and a link to that version's latest run `(<%URL%|run>)`. Link to the run the status describes (the finished run, or today's in-progress build).
+
+Status is one of:
+
+- `passing (Oct 11)` — today's run finished green
+- `failing (Oct 11)` — today's run finished red
+- `in progress (last passed Oct 11)` — today's run hasn't finished yet
+
+Write the header status in plain words only — no emoji or glyphs. The `⌛` spinner and `✅`/`❌` marks belong in the trend-table cell, not the header.
 
 **Column alignment:** pad every label to the width of the longest (`hypershift-ocp-5.1-nightly:`) so the date header and all cells line up vertically.
 
@@ -290,7 +303,7 @@ Include the PR link, team prompt, or investigation request in the threaded reply
 ```text
 :large_yellow_circle: *CI Daily — Jun 30*
 :large_green_circle: ephemeral: passing (<url|run>)  |  :red_circle: integration: failing (<url|run>)  |  :large_green_circle: stage: passing (<url|run>)
-:large_green_circle: OCP nightly: 5.0 :loader: running (last ✅ Jun 29)  |  5.1 :loader: running (last ✅ Jun 29)
+:large_green_circle: latest OCP nightly: 5.0 in progress (last passed Jun 29) (<url|run>)  |  5.1 in progress (last passed Jun 29) (<url|run>)
 
                             Jun21 Jun22 Jun23 Jun24 Jun25 Jun26 Jun27 Jun28 Jun29 Jun30
 ephemeral:                   ✅    ✅    ✅    ✅    ✅    ✅    ✅    ✅    ✅    ✅   10/10
